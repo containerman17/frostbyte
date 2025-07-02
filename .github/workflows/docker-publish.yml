@@ -24,21 +24,21 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-            - name: Extract metadata
+      - name: Extract metadata
         id: meta
         run: |
           # Get branch name
           BRANCH=${GITHUB_REF#refs/heads/}
           echo "branch=$BRANCH" >> $GITHUB_OUTPUT
-          
+
           # Get short SHA
           SHORT_SHA=$(echo ${GITHUB_SHA} | cut -c1-7)
           echo "sha=$SHORT_SHA" >> $GITHUB_OUTPUT
-          
+
           # Sanitize branch name for Docker tag (replace / with -)
           SAFE_BRANCH=$(echo $BRANCH | sed 's/\//-/g')
           echo "safe_branch=$SAFE_BRANCH" >> $GITHUB_OUTPUT
-          
+
           # Build tags list
           TAGS="${{ env.DOCKER_IMAGE }}:${SAFE_BRANCH}"
           if [ "$BRANCH" = "main" ]; then
