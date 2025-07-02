@@ -1,5 +1,3 @@
-chainId: 27827
----
 path: /metrics/txCount?pageSize=2&endTimestamp=1751248800
 status: 200
 glacierBody: |-
@@ -93,7 +91,6 @@ expectedBody: |-
     "nextPageToken": "1746057600"
   }
 ---
-# FIXME: Manual override here, data differs a bit from glacier, needs investigation
 path: /metrics/txCount?pageSize=2&timeInterval=week&endTimestamp=1751248800
 status: 200
 glacierBody: |-

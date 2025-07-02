@@ -1,5 +1,5 @@
 process.env.NODE_ENV = "dev"
-process.env.RPC_URL = "http://localhost:3000/rpc"
+process.env.RPC_URL = "http://localhost:3333/rpc" //Points to itself
 process.env.CHAIN_ID = "e2e"
 process.env.DATA_DIR = "./database"
 process.env.RPS = "1000"
@@ -9,7 +9,6 @@ process.env.BLOCKS_PER_BATCH = "1000"
 process.env.DEBUG_RPC_AVAILABLE = "false"
 process.env.REVERSE_PROXY_PREFIX = "/"
 
-import { getEvmChainId } from './utils';
 import test from 'node:test';
 import assert from 'node:assert';
 import fs from 'node:fs';
@@ -42,13 +41,9 @@ test('API Specs Validation', async (t) => {
 
     console.log('Starting API server...');
     const apiServer = createApiServer(blocksDbPath, indexingDbPath);
-    const server = apiServer.start(3000);
+    const server = apiServer.start(3333);
 
     try {
-        // Get chainId from localhost
-        const localChainId = await getEvmChainId('http://localhost:3000/rpc');
-        console.log(`Local chain ID: ${localChainId}`);
-
         // Find all YAML files in specs folder
         const specsDir = path.join(process.cwd(), 'specs');
         const yamlFiles = fs.readdirSync(specsDir)
@@ -68,23 +63,15 @@ test('API Specs Validation', async (t) => {
                     throw new Error(`No blocks found in ${yamlFile}`);
                 }
 
-                // Parse first block for chainId
-                const firstBlock = YAML.parse(blocks[0]);
-                const specChainId = firstBlock.chainId;
-
-                if (specChainId !== localChainId) {
-                    throw new Error(`Chain ID mismatch: spec expects ${specChainId}, but localhost has ${localChainId}`);
-                }
-
-                console.log(`\n✓ Chain ID matches: ${specChainId}`);
+                console.log(`\n✓ Processing ${blocks.length} endpoint specs`);
 
                 // Test each endpoint spec
-                for (let i = 1; i < blocks.length; i++) {
+                for (let i = 0; i < blocks.length; i++) {
                     const block = YAML.parse(blocks[i]);
                     if (!block.path) continue;
 
                     await t.test(`${block.path}`, async () => {
-                        const url = `http://localhost:3000${block.path}`;
+                        const url = `http://localhost:3333${block.path}`;
 
                         const response = await fetch(url);
 

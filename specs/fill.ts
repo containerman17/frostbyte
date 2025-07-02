@@ -1,22 +1,16 @@
 import fs from 'fs';
+import path from 'path';
 import YAML from 'yaml';
-import { getEvmChainId } from './utils';
 
-async function updateYamlFile(chainId: number, forceUpdate: boolean) {
-    const yamlFilePath = './specs/txCount.yaml';
+
+async function updateYamlFile(yamlFilePath: string, chainId: number, forceUpdate: boolean) {
     const yamlContent = fs.readFileSync(yamlFilePath, 'utf8');
 
     // Split by --- to get individual documents
     const blocks = yamlContent.split('---\n').filter(block => block.trim());
 
-    // Update first block
-    if (!blocks[0]) throw new Error('No first block found');
-    const firstBlock = YAML.parse(blocks[0]);
-    firstBlock.chainId = chainId;
-    blocks[0] = YAML.stringify(firstBlock).trim();
-
-    // Update other blocks
-    for (let i = 1; i < blocks.length; i++) {
+    // Update all blocks
+    for (let i = 0; i < blocks.length; i++) {
         const blockContent = blocks[i];
         if (!blockContent) continue;
         const block = YAML.parse(blockContent);
@@ -50,9 +44,18 @@ async function updateYamlFile(chainId: number, forceUpdate: boolean) {
 
 // Parse command line arguments
 const forceUpdate = process.argv.includes('--force')
+const E2E_CHAIN_ID = 27827;
 
-const chainId = await getEvmChainId('http://localhost:3000/rpc');
-console.log(chainId);
-await updateYamlFile(chainId, forceUpdate);
+// Get all YAML files in specs directory
+const specsDir = './specs';
+const yamlFiles = fs.readdirSync(specsDir)
+    .filter(file => file.endsWith('.yaml') || file.endsWith('.yml'))
+    .map(file => path.join(specsDir, file));
+
+// Process each YAML file
+for (const yamlFile of yamlFiles) {
+    console.log(`Processing ${yamlFile}...`);
+    await updateYamlFile(yamlFile, E2E_CHAIN_ID, forceUpdate);
+}
 
 export { }
