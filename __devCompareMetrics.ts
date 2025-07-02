@@ -181,7 +181,8 @@ const metrics = [
     // 'txCount',
     // 'cumulativeTxCount',
     // 'cumulativeContracts',
-    'activeSenders'
+    // 'activeSenders',
+    'activeAddresses',
 ]
 
 for (const metric of metrics) {
