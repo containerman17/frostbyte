@@ -14,8 +14,7 @@ import { CreateIndexerFunction, Indexer } from "./types";
 import { LazyTx } from "../blockFetcher/lazy/LazyTx";
 import { LazyBlock } from "../blockFetcher/lazy/LazyBlock";
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
-import { LazyTraces, LazyTraceCall } from "../blockFetcher/lazy/LazyTrace";
-import { lazyTxToReceipt, lazyTxToTx } from "../blockFetcher/lazy/LazyTx";
+import { LazyTraces } from "../blockFetcher/lazy/LazyTrace";
 
 // Response schema for teleporter metrics
 const TeleporterMetricResponseSchema = z.object({
