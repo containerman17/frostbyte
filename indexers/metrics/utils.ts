@@ -49,8 +49,8 @@ export function normalizeTimestamp(timestamp: number, timeInterval: number): num
 export function countCreateCallsInTrace(call: LazyTraceCall): number {
     let count = 0;
 
-    // Check if this call is a contract creation (CREATE, CREATE2)
-    if (call.type === 'CREATE' || call.type === 'CREATE2') {
+    // Check if this call is a contract creation (CREATE, CREATE2, CREATE3)
+    if (call.type === 'CREATE' || call.type === 'CREATE2' || call.type === 'CREATE3') {
         count = 1;
     }
 

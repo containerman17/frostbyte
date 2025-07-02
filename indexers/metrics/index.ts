@@ -350,7 +350,7 @@ class MetricsIndexer implements Indexer {
                 startTimestamp,
                 endTimestamp,
                 timeInterval = 'hour',
-                pageSize = 100,
+                pageSize = 10,
                 pageToken
             } = c.req.valid('query');
 
