@@ -9,6 +9,7 @@ export const TIME_INTERVAL_MONTH = 3;
 export const METRIC_txCount = 0;
 export const METRIC_cumulativeContracts = 1;
 export const METRIC_cumulativeTxCount = 2;
+export const METRIC_activeSenders = 3;
 
 export interface MetricResult {
     timestamp: number;

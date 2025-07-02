@@ -18,6 +18,7 @@ import {
     METRIC_txCount,
     METRIC_cumulativeContracts,
     METRIC_cumulativeTxCount,
+    METRIC_activeSenders,
     isCumulativeMetric,
     normalizeTimestamp,
     getTimeIntervalId
@@ -35,6 +36,7 @@ const METRICS = {
     txCount: METRIC_txCount,
     cumulativeContracts: METRIC_cumulativeContracts,
     cumulativeTxCount: METRIC_cumulativeTxCount,
+    activeSenders: METRIC_activeSenders,
 } as const;
 
 class MetricsIndexer implements Indexer {
@@ -52,6 +54,22 @@ class MetricsIndexer implements Indexer {
                 value INTEGER NOT NULL,
                 PRIMARY KEY (timeInterval, timestamp, metric)
             ) WITHOUT ROWID
+        `);
+
+        // Create table to track active senders per time period
+        this.indexingDb.exec(`
+            CREATE TABLE IF NOT EXISTS active_senders (
+                timeInterval INTEGER NOT NULL,
+                periodTimestamp INTEGER NOT NULL,
+                address TEXT NOT NULL,
+                PRIMARY KEY (timeInterval, periodTimestamp, address)
+            ) WITHOUT ROWID
+        `);
+
+        // Create index for efficient counting
+        this.indexingDb.exec(`
+            CREATE INDEX IF NOT EXISTS idx_active_senders_period 
+            ON active_senders(timeInterval, periodTimestamp)
         `);
 
         // Initialize cumulative contract count from existing data
@@ -82,6 +100,9 @@ class MetricsIndexer implements Indexer {
         this.updateIncrementalMetric(TIME_INTERVAL_DAY, blockTimestamp, METRIC_txCount, txCount);
         this.updateIncrementalMetric(TIME_INTERVAL_WEEK, blockTimestamp, METRIC_txCount, txCount);
         this.updateIncrementalMetric(TIME_INTERVAL_MONTH, blockTimestamp, METRIC_txCount, txCount);
+
+        // Process active senders - store unique addresses per time period
+        this.processActiveSenders(txs, blockTimestamp);
 
         // Update cumulative transaction count
         this.cumulativeTxCount += txCount;
@@ -120,6 +141,74 @@ class MetricsIndexer implements Indexer {
             ON CONFLICT(timeInterval, timestamp, metric) 
             DO UPDATE SET value = ?
         `).run(timeInterval, normalizedTimestamp, metric, totalValue, totalValue);
+    }
+
+    private processActiveSenders(txs: LazyTx[], blockTimestamp: number): void {
+        // Extract unique senders from this block
+        const uniqueSenders = this.extractUniqueSenders(txs);
+
+        if (uniqueSenders.size === 0) return;
+
+        // Process for each time interval
+        const timeIntervals = [TIME_INTERVAL_HOUR, TIME_INTERVAL_DAY, TIME_INTERVAL_WEEK, TIME_INTERVAL_MONTH];
+
+        // Prepare statements outside the loop for better performance
+        const insertStmt = this.indexingDb.prepare(`
+            INSERT OR IGNORE INTO active_senders (timeInterval, periodTimestamp, address) 
+            VALUES (?, ?, ?)
+        `);
+
+        const countStmt = this.indexingDb.prepare(`
+            SELECT COUNT(DISTINCT address) as count 
+            FROM active_senders 
+            WHERE timeInterval = ? AND periodTimestamp = ?
+        `);
+
+        const updateMetricStmt = this.indexingDb.prepare(`
+            INSERT INTO metrics (timeInterval, timestamp, metric, value) 
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(timeInterval, timestamp, metric) 
+            DO UPDATE SET value = ?
+        `);
+
+        for (const timeInterval of timeIntervals) {
+            const periodTimestamp = normalizeTimestamp(blockTimestamp, timeInterval);
+
+            // Batch insert all unique senders for this period
+            const insertBatch = this.indexingDb.transaction(() => {
+                for (const address of uniqueSenders) {
+                    insertStmt.run(timeInterval, periodTimestamp, address);
+                }
+            });
+            insertBatch();
+
+            // Count total unique senders for this period
+            const countResult = countStmt.get(timeInterval, periodTimestamp) as { count: number };
+
+            // Update the metric with the total count
+            updateMetricStmt.run(timeInterval, periodTimestamp, METRIC_activeSenders, countResult.count, countResult.count);
+        }
+    }
+
+    private extractUniqueSenders(txs: LazyTx[]): Set<string> {
+        const uniqueSenders = new Set<string>();
+        const TRANSFER_EVENT_SIGNATURE = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+
+        for (const tx of txs) {
+            // Add transaction sender
+            uniqueSenders.add(tx.from.toLowerCase());
+
+            // Check logs for Transfer events
+            for (const log of tx.logs) {
+                if (log.topics.length >= 2 && log.topics[0] === TRANSFER_EVENT_SIGNATURE && log.topics[1]) {
+                    // Extract 'from' address from topics[1] (remove 0x prefix and padding)
+                    const fromAddress = "0x" + log.topics[1].slice(-40);
+                    uniqueSenders.add(fromAddress.toLowerCase());
+                }
+            }
+        }
+
+        return uniqueSenders;
     }
 
     registerRoutes(app: OpenAPIHono): void {
