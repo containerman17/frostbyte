@@ -1,12 +1,12 @@
 process.env.NODE_ENV = "dev"
 process.env.RPC_URL = "http://localhost:3333/rpc" //Points to itself
-process.env.CHAIN_ID = "e2e"
+process.env.CHAIN_ID = "e2e_zerooneMainnet"
 process.env.DATA_DIR = "./database"
 process.env.RPS = "1000"
 process.env.REQUEST_BATCH_SIZE = "100"
 process.env.MAX_CONCURRENT = "50"
 process.env.BLOCKS_PER_BATCH = "1000"
-process.env.DEBUG_RPC_AVAILABLE = "false"
+process.env.DEBUG_RPC_AVAILABLE = "true"
 process.env.REVERSE_PROXY_PREFIX = "/"
 
 import test from 'node:test';

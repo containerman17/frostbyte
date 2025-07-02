@@ -1,0 +1,14 @@
+path: /metrics/activeSenders?pageSize=2&endTimestamp=1751248800
+status: 200
+---
+path: /metrics/activeSenders?pageSize=2&timeInterval=day&endTimestamp=1751248800
+status: 200
+---
+path: /metrics/activeSenders?pageSize=2&timeInterval=month&endTimestamp=1751248800
+status: 200
+---
+path: /metrics/activeSenders?pageSize=2&timeInterval=week&endTimestamp=1751248800
+status: 200
+---
+path: /metrics/activeSenders?pageSize=2&timeInterval=hour&endTimestamp=1751248800
+status: 200

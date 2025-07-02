@@ -1,7 +1,6 @@
-# TODO: this closes #1
-# path: /metrics/cumulativeContracts?pageSize=3&endTimestamp=1751248800
-# status: 400
-
+path: /metrics/cumulativeContracts?pageSize=3&endTimestamp=1751248800
+status: 400
+---
 path: /metrics/cumulativeContracts?pageSize=2&timeInterval=day&endTimestamp=1751248800
 status: 200
 glacierBody: |-
