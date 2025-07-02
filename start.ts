@@ -11,7 +11,7 @@ import { executePragmas, IndexingDbHelper } from './indexers/dbHelper';
 
 import { IS_DEVELOPMENT, RPC_URL, CHAIN_ID, DATA_DIR, RPS, REQUEST_BATCH_SIZE, MAX_CONCURRENT, BLOCKS_PER_BATCH, DEBUG_RPC_AVAILABLE } from './config';
 import { createSanityChecker } from './indexers/sanityChecker';
-import { createMetricsIndexer } from './indexers/metrics';
+import { createMetricsIndexer } from './indexers/metrics/index';
 import { Indexer } from './indexers/types';
 import { serve } from '@hono/node-server';
 import { createTeleporterMetricsIndexer } from './indexers/teleporterMetrics';

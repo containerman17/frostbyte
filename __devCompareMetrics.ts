@@ -119,7 +119,12 @@ async function compareResponses(queryString: string, pages: number = 1) {
                 } else if (glacier && !local) {
                     console.log(`Index ${i}: Glacier=${glacier.timestamp}(${glacier.value}), Local=missing`);
                 } else if (glacier && local && (glacier.timestamp !== local.timestamp || glacier.value !== local.value)) {
-                    console.log(`Index ${i}: Glacier=${glacier.timestamp}(${glacier.value}), Local=${local.timestamp}(${local.value})`);
+                    if (glacier.timestamp !== local.timestamp) {
+                        console.log(`Index ${i}:  Dates differ: ${new Date(glacier.timestamp * 1000).toISOString()} (glacier) vs ${new Date(local.timestamp * 1000).toISOString()} (local)`)
+                    }
+                    if (glacier.value !== local.value) {
+                        console.log(`Index ${i}: Values differ: ${glacier.value} (glacier) vs ${local.value} (local)`)
+                    }
                 }
             }
         }
@@ -174,8 +179,10 @@ async function compareTeleporterMetrics() {
 
 const metrics = [
     // 'txCount',
-    'cumulativeTxCount',
+    // 'cumulativeTxCount',
     // 'cumulativeContracts',
+    // 'activeSenders',
+    'activeAddresses',
 ]
 
 for (const metric of metrics) {
@@ -198,6 +205,6 @@ for (const metric of metrics) {
 }
 
 // Compare teleporter metrics
-await compareTeleporterMetrics();
+// await compareTeleporterMetrics();
 
 export { }

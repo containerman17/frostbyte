@@ -90,6 +90,7 @@ export const TRACE_CALL_TYPES = [
     'CALLCODE',
     'CREATE',
     'CREATE2',
+    'CREATE3',
     'SELFDESTRUCT',
     'SUICIDE',
     'REWARD'
