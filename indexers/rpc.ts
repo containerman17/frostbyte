@@ -130,10 +130,12 @@ class RPCIndexer implements Indexer {
             const blockNumber = request.params[0];
             const { block, txs } = this.blocksDb.getBlockWithTransactions(blockNumber);
             response.result = lazyBlockToBlock(block, txs);
+        } else if (request.method === 'eth_blockNumber') {
+            response.result = `0x${this.blocksDb.getBlockchainLatestBlockNum().toString(16)}`;
         } else {
             response.error = {
                 code: -32601,
-                message: 'Method not found. Implement it in ./indexers/rpc.ts'
+                message: `Method ${request.method} not found. Implement it in ./indexers/rpc.ts`
             };
         }
 
