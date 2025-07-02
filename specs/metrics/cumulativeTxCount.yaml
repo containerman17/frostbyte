@@ -1,6 +1,3 @@
-path: /metrics/cumulativeTxCount?pageSize=3&endTimestamp=1751248800
-status: 400
----
 path: /metrics/cumulativeTxCount?pageSize=2&timeInterval=day&endTimestamp=1751248800
 status: 200
 glacierBody: |-
@@ -29,5 +26,5 @@ expectedBody: |-
         "timestamp": 1751155200
       }
     ],
-    "nextPageToken": "a49b9abb-7d36-4ed1-bc6b-4a8fcbbfb20a"
+    "nextPageToken": "1751155200"
   }

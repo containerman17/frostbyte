@@ -17,6 +17,26 @@ import YAML from 'yaml';
 import * as jsondiffpatch from 'jsondiffpatch';
 import * as consoleFormatter from 'jsondiffpatch/formatters/console';
 
+// Recursive function to find all YAML files
+function findYamlFiles(dir: string): string[] {
+    const yamlFiles: string[] = [];
+
+    const files = fs.readdirSync(dir);
+    for (const file of files) {
+        const fullPath = path.join(dir, file);
+        const stat = fs.statSync(fullPath);
+
+        if (stat.isDirectory()) {
+            // Recursively search subdirectories
+            yamlFiles.push(...findYamlFiles(fullPath));
+        } else if (file.endsWith('.yaml') || file.endsWith('.yml')) {
+            yamlFiles.push(fullPath);
+        }
+    }
+
+    return yamlFiles;
+}
+
 test('API Specs Validation', async (t) => {
     // Dynamic imports after env vars are set
     const { createApiServer } = await import('../server');
@@ -46,15 +66,14 @@ test('API Specs Validation', async (t) => {
     try {
         // Find all YAML files in specs folder
         const specsDir = path.join(process.cwd(), 'specs');
-        const yamlFiles = fs.readdirSync(specsDir)
-            .filter(file => file.endsWith('.yaml') || file.endsWith('.yml'));
+        const yamlFiles = findYamlFiles(specsDir);
 
         console.log(`Found ${yamlFiles.length} spec file(s): ${yamlFiles.join(', ')}`);
 
         // Test each YAML file
         for (const yamlFile of yamlFiles) {
             await t.test(yamlFile, async (t) => {
-                const yamlPath = path.join(specsDir, yamlFile);
+                const yamlPath = yamlFile;
                 const yamlContent = fs.readFileSync(yamlPath, 'utf8');
 
                 // Parse multi-document YAML

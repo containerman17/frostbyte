@@ -2,6 +2,25 @@ import fs from 'fs';
 import path from 'path';
 import YAML from 'yaml';
 
+// Recursive function to find all YAML files
+function findYamlFiles(dir: string): string[] {
+    const yamlFiles: string[] = [];
+
+    const files = fs.readdirSync(dir);
+    for (const file of files) {
+        const fullPath = path.join(dir, file);
+        const stat = fs.statSync(fullPath);
+
+        if (stat.isDirectory()) {
+            // Recursively search subdirectories
+            yamlFiles.push(...findYamlFiles(fullPath));
+        } else if (file.endsWith('.yaml') || file.endsWith('.yml')) {
+            yamlFiles.push(fullPath);
+        }
+    }
+
+    return yamlFiles;
+}
 
 async function updateYamlFile(yamlFilePath: string, chainId: number, forceUpdate: boolean) {
     const yamlContent = fs.readFileSync(yamlFilePath, 'utf8');
@@ -48,9 +67,7 @@ const E2E_CHAIN_ID = 27827;
 
 // Get all YAML files in specs directory
 const specsDir = './specs';
-const yamlFiles = fs.readdirSync(specsDir)
-    .filter(file => file.endsWith('.yaml') || file.endsWith('.yml'))
-    .map(file => path.join(specsDir, file));
+const yamlFiles = findYamlFiles(specsDir);
 
 // Process each YAML file
 for (const yamlFile of yamlFiles) {

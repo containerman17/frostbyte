@@ -130,7 +130,12 @@ export function backfillCumulativeMetric(
     endTimestamp?: number
 ): MetricResult[] {
     // If no results, create synthetic results based on current value
-    if (results.length === 0 && currentCumulativeValue > 0) {
+    if (results.length === 0) {
+        // If there's no cumulative value either, return empty array
+        if (currentCumulativeValue <= 0) {
+            return [];
+        }
+
         // Generate timestamps for the requested range
         const now = Math.floor(Date.now() / 1000);
         const end = endTimestamp || now;
