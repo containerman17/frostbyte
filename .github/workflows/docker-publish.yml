@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - "**" # Trigger on all branches
+    tags:
+      - "*" # Trigger on all tags
 
 env:
   REGISTRY: ghcr.io
@@ -32,28 +34,45 @@ jobs:
       - name: Extract metadata
         id: meta
         run: |
-          # Get branch name
-          BRANCH=${GITHUB_REF#refs/heads/}
-          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
-
-          # Get short SHA
-          SHORT_SHA=$(echo ${GITHUB_SHA} | cut -c1-7)
-          echo "sha=$SHORT_SHA" >> $GITHUB_OUTPUT
-
-          # Sanitize branch name for Docker tag (replace / with -)
-          SAFE_BRANCH=$(echo $BRANCH | sed 's/\//-/g')
-          echo "safe_branch=$SAFE_BRANCH" >> $GITHUB_OUTPUT
-
           # Convert repository name to lowercase (ghcr requires lowercase)
           IMAGE_NAME=$(echo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
           echo "image_name=$IMAGE_NAME" >> $GITHUB_OUTPUT
 
-          # Build tags list
-          TAGS="${IMAGE_NAME}:${SAFE_BRANCH}"
-          if [ "$BRANCH" = "main" ]; then
-            TAGS="$TAGS,${IMAGE_NAME}:latest"
-            TAGS="$TAGS,${IMAGE_NAME}:${SHORT_SHA}"
+          # Check if this is a tag or branch
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            # Extract tag name
+            TAG=${GITHUB_REF#refs/tags/}
+            echo "ref_type=tag" >> $GITHUB_OUTPUT
+            echo "ref_name=$TAG" >> $GITHUB_OUTPUT
+
+            # For tags, create both the exact tag and 'latest' if it's not a pre-release
+            TAGS="${IMAGE_NAME}:${TAG}"
+            # If it doesn't contain - or alpha/beta/rc, also tag as latest
+            if [[ ! "$TAG" =~ - ]] && [[ ! "$TAG" =~ (alpha|beta|rc) ]]; then
+              TAGS="$TAGS,${IMAGE_NAME}:latest"
+            fi
+          else
+            # Extract branch name
+            BRANCH=${GITHUB_REF#refs/heads/}
+            echo "ref_type=branch" >> $GITHUB_OUTPUT
+            echo "ref_name=$BRANCH" >> $GITHUB_OUTPUT
+
+            # Get short SHA
+            SHORT_SHA=$(echo ${GITHUB_SHA} | cut -c1-7)
+            echo "sha=$SHORT_SHA" >> $GITHUB_OUTPUT
+
+            # Sanitize branch name for Docker tag (replace / with -)
+            SAFE_BRANCH=$(echo $BRANCH | sed 's/\//-/g')
+            echo "safe_branch=$SAFE_BRANCH" >> $GITHUB_OUTPUT
+
+            # Build tags list
+            TAGS="${IMAGE_NAME}:${SAFE_BRANCH}"
+            if [ "$BRANCH" = "main" ]; then
+              TAGS="$TAGS,${IMAGE_NAME}:latest"
+              TAGS="$TAGS,${IMAGE_NAME}:${SHORT_SHA}"
+            fi
           fi
+
           echo "tags=$TAGS" >> $GITHUB_OUTPUT
 
       - name: Build and push Docker image
