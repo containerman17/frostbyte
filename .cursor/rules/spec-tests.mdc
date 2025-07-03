@@ -1,0 +1,37 @@
+---
+description: work with spec tests
+globs: 
+alwaysApply: false
+---
+# Spec Tests Usage Guide
+
+When working with spec tests in this project, follow this pattern:
+
+## Creating Spec Tests
+
+1. Create a module folder in `./specs/`
+2. Inside this folder, create YAML file(s) with test cases
+3. Each test case should have `path:` and `status:` fields
+4. Separate test cases with `---`
+
+## Example Format
+
+```yaml
+path: /metrics/activeAddresses?pageSize=2&endTimestamp=1751248800 
+status: 200
+---
+path: /metrics/activeAddresses?pageSize=1
+status: 200
+---
+path: /metrics/activeAddresses?pageSize=9999&endTimestamp=1751248800 
+status: 400
+```
+
+## Running Spec Tests
+
+After creating the YAML files, run:
+```bash
+npm run spec:fill
+```
+
+This command will populate the specs with data from Glacier.

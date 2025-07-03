@@ -13,4 +13,4 @@ tar -xzf database_e2e_zerooneMainnet.tar.gz
 rm database_e2e_zerooneMainnet.tar.gz
 ```
 
-Now run it `npx tsx ./specs/spec.test.ts`
+Now run it `npm run test:specs`
