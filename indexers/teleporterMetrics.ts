@@ -55,7 +55,13 @@ class TeleporterMetricsIndexer implements Indexer {
         this.destinationTxnCount = destResult?.value || 0;
     }
 
-    indexBlock(block: LazyBlock, txs: LazyTx[], traces: LazyTraces | undefined): void {
+    indexBlocks(blocks: { block: LazyBlock, txs: LazyTx[], traces: LazyTraces | undefined }[]): void {
+        for (const block of blocks) {
+            this.indexBlock(block.block, block.txs, block.traces);
+        }
+    }
+
+    private indexBlock(block: LazyBlock, txs: LazyTx[], traces: LazyTraces | undefined): void {
         // Count teleporter transactions in this block
         let changeToRecord = false;
         for (const tx of txs) {

@@ -5,14 +5,25 @@ import { LazyTx } from "../blockFetcher/lazy/LazyTx";
 import { LazyBlock } from "../blockFetcher/lazy/LazyBlock";
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { LazyTraces } from "../blockFetcher/lazy/LazyTrace";
-import { DEBUG_RPC_AVAILABLE } from "../config";
+import { DEBUG_RPC_AVAILABLE, IS_DEVELOPMENT } from "../config";
 
 let lastBlockIndexed = -1
 
 class SanityChecker implements Indexer {
     initialize(): void { }
 
-    indexBlock(block: LazyBlock, txs: LazyTx[], traces: LazyTraces | undefined): void {
+    //TODO: unite with indexBlock
+    indexBlocks(blocks: { block: LazyBlock, txs: LazyTx[], traces: LazyTraces | undefined }[]): void {
+        for (const block of blocks) {
+            this.indexBlock(block.block, block.txs, block.traces);
+        }
+    }
+
+    private indexBlock(block: LazyBlock, txs: LazyTx[], traces: LazyTraces | undefined): void {
+        if (!IS_DEVELOPMENT) {
+            return;
+        }
+
         if (DEBUG_RPC_AVAILABLE && traces === undefined) {
             throw new Error(`Sanity checker failed: Traces are undefined but DEBUG_RPC_AVAILABLE is true`);
         } else if (!DEBUG_RPC_AVAILABLE && traces !== undefined) {

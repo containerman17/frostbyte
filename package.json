@@ -3,10 +3,12 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "rm -f ./database/*/indexing*; tsx watch --clear-screen=false start.ts",
+    "dev": "tsx watch --clear-screen=false start.ts",
+    "dev:clean": "rm -f ./database/*/indexing*; tsx watch --clear-screen=false start.ts",
     "docker:push": "docker buildx build --platform linux/amd64,linux/arm64 -t ghcr.io/containerman17/frostbyte:latest --push .",
     "docker:run": "docker buildx build -t indexer-dev --load . && docker run -it -v ${PWD}/database:/app/database -v ${PWD}/.env:/app/.env -p 3000:3000 indexer-dev",
     "test:specs": "npx tsx specs/spec.test.ts",
+    "test:specs:clean": "rm -f ./database/*/indexing*; npx tsx specs/spec.test.ts",
     "specs:fill": "tsx specs/fill.ts"
   },
   "keywords": [],

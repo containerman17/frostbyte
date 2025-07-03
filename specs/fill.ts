@@ -40,17 +40,34 @@ async function updateYamlFile(yamlFilePath: string, chainId: number, forceUpdate
 
             try {
                 const response = await fetch(url);
-                if (response.ok) {
-                    const body = await response.json();
-                    block.glacierBody = JSON.stringify(body, null, 2);
 
-                    // If expectedBody doesn't exist or is empty, initialize it with glacierBody
-                    if (!block.expectedBody || block.expectedBody === "TODO: add body" || block.expectedBody === "") {
-                        block.expectedBody = block.glacierBody;
-                    }
+                // Always update status
+                block.status = response.status;
+
+                // Get the response as text first
+                const responseText = await response.text();
+
+                // Try to parse as JSON, otherwise use as plain text
+                try {
+                    const body = JSON.parse(responseText);
+                    block.glacierBody = JSON.stringify(body, null, 2);
+                } catch (jsonError) {
+                    // If not valid JSON, use the text as is
+                    block.glacierBody = responseText;
+                }
+
+                // If expectedBody doesn't exist or is empty, initialize it with glacierBody
+                if (!block.expectedBody || block.expectedBody === "TODO: add body" || block.expectedBody === "") {
+                    block.expectedBody = block.glacierBody;
+                }
+
+                if (!response.ok) {
+                    console.error(`Request to ${url} returned HTTP ${response.status} ${response.statusText}`);
                 }
             } catch (error) {
                 console.error(`Failed to fetch ${url}:`, error);
+                // Set status to 0 or similar to indicate network error
+                block.status = 0;
             }
         }
 

@@ -58,11 +58,22 @@ export async function startIndexer(options: IndexerOptions): Promise<void> {
         consecutiveEmptyBatches = 0;
         let debugTxCount = 0;
 
-        for (const { block, txs, traces } of blocks) {
-            debugTxCount += txs.length;
-            for (const indexer of indexers) {
-                indexer.indexBlock(block, txs, traces);
-            }
+        const timeSpentPerIndexer = new Map<string, number>();
+
+
+        for (const indexer of indexers) {
+            const indexerStart = performance.now();
+            indexer.indexBlocks(blocks);
+            const indexerFinish = performance.now();
+            timeSpentPerIndexer.set(indexer.constructor.name, (timeSpentPerIndexer.get(indexer.constructor.name) || 0) + (indexerFinish - indexerStart));
+        }
+        for (const block of blocks) {
+            debugTxCount += block.txs.length
+        }
+
+        console.log('Time spent per indexer:');
+        for (const [indexerName, timeSpent] of timeSpentPerIndexer) {
+            console.log(`   ${indexerName}: ${timeSpent.toFixed(2)}ms`);
         }
 
         const indexingFinish = performance.now();
