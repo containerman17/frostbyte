@@ -109,106 +109,202 @@ class MetricsIndexer implements Indexer {
         this.cumulativeTxCount = txResult?.maxValue || 0;
     }
 
-    indexBlock(block: LazyBlock, txs: LazyTx[], traces: LazyTraces | undefined): void {
-        const blockTimestamp = block.timestamp;
-        const txCount = countTransactions(txs);
+    indexBlocks(blocks: { block: LazyBlock, txs: LazyTx[], traces: LazyTraces | undefined }[]): void {
+        const startTime = performance.now();
+        const timings = {
+            dataExtraction: 0,
+            senderProcessing: 0,
+            addressProcessing: 0,
+            transaction: 0,
+            incrementalUpdates: 0,
+            cumulativeUpdates: 0,
+            activeSendersDb: 0,
+            activeAddressesDb: 0,
+        };
 
-        // Update incremental metrics (txCount)
-        this.updateIncrementalMetric(TIME_INTERVAL_HOUR, blockTimestamp, METRIC_txCount, txCount);
-        this.updateIncrementalMetric(TIME_INTERVAL_DAY, blockTimestamp, METRIC_txCount, txCount);
-        this.updateIncrementalMetric(TIME_INTERVAL_WEEK, blockTimestamp, METRIC_txCount, txCount);
-        this.updateIncrementalMetric(TIME_INTERVAL_MONTH, blockTimestamp, METRIC_txCount, txCount);
+        // Maps to accumulate metric updates
+        const incrementalUpdates = new Map<string, number>(); // key = "timeInterval,timestamp,metric"
+        const cumulativeUpdates = new Map<string, number>(); // key = "timeInterval,timestamp,metric"
 
-        // Process active senders - store unique addresses per time period
-        this.processActiveSenders(txs, blockTimestamp);
+        // Maps to track unique senders and addresses per time period
+        const activeSendersMap = new Map<string, Set<string>>(); // key = "timeInterval,periodTimestamp"
+        const activeAddressesMap = new Map<string, Set<string>>(); // key = "timeInterval,periodTimestamp"
 
-        // Process active addresses (both from and to) - store unique addresses per time period
-        this.processActiveAddresses(txs, blockTimestamp);
-
-        // Update cumulative transaction count
-        this.cumulativeTxCount += txCount;
-
-        // Update cumulative metrics (cumulativeTxCount) - all intervals
-        this.updateCumulativeMetric(TIME_INTERVAL_HOUR, blockTimestamp, METRIC_cumulativeTxCount, this.cumulativeTxCount);
-        this.updateCumulativeMetric(TIME_INTERVAL_DAY, blockTimestamp, METRIC_cumulativeTxCount, this.cumulativeTxCount);
-        this.updateCumulativeMetric(TIME_INTERVAL_WEEK, blockTimestamp, METRIC_cumulativeTxCount, this.cumulativeTxCount);
-        this.updateCumulativeMetric(TIME_INTERVAL_MONTH, blockTimestamp, METRIC_cumulativeTxCount, this.cumulativeTxCount);
-
-        // Count contract deployments in this block
-        const contractCount = countContractDeployments(txs, traces);
-        this.cumulativeContractCount += contractCount;
-
-        // Update cumulative metrics (cumulativeContracts) - only day interval supported
-        this.updateCumulativeMetric(TIME_INTERVAL_DAY, blockTimestamp, METRIC_cumulativeContracts, this.cumulativeContractCount);
-    }
-
-    private updateIncrementalMetric(timeInterval: number, timestamp: number, metric: number, increment: number): void {
-        const normalizedTimestamp = normalizeTimestamp(timestamp, timeInterval);
-
-        this.indexingDb.prepare(`
-            INSERT INTO metrics (timeInterval, timestamp, metric, value) 
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(timeInterval, timestamp, metric) 
-            DO UPDATE SET value = value + ?
-        `).run(timeInterval, normalizedTimestamp, metric, increment, increment);
-    }
-
-    private updateCumulativeMetric(timeInterval: number, timestamp: number, metric: number, totalValue: number): void {
-        const normalizedTimestamp = normalizeTimestamp(timestamp, timeInterval);
-
-        this.indexingDb.prepare(`
-            INSERT INTO metrics (timeInterval, timestamp, metric, value) 
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(timeInterval, timestamp, metric) 
-            DO UPDATE SET value = ?
-        `).run(timeInterval, normalizedTimestamp, metric, totalValue, totalValue);
-    }
-
-    private processActiveSenders(txs: LazyTx[], blockTimestamp: number): void {
-        // Extract unique senders from this block
-        const uniqueSenders = this.extractUniqueSenders(txs);
-
-        if (uniqueSenders.size === 0) return;
-
-        // Process for each time interval
         const timeIntervals = [TIME_INTERVAL_HOUR, TIME_INTERVAL_DAY, TIME_INTERVAL_WEEK, TIME_INTERVAL_MONTH];
 
-        // Prepare statements outside the loop for better performance
-        const insertStmt = this.indexingDb.prepare(`
-            INSERT OR IGNORE INTO active_senders (timeInterval, periodTimestamp, address) 
-            VALUES (?, ?, ?)
-        `);
+        // Process all blocks and accumulate updates
+        const dataExtractionStart = performance.now();
+        for (const { block, txs, traces } of blocks) {
+            const blockTimestamp = block.timestamp;
+            const txCount = countTransactions(txs);
 
-        const countStmt = this.indexingDb.prepare(`
-            SELECT COUNT(DISTINCT address) as count 
-            FROM active_senders 
-            WHERE timeInterval = ? AND periodTimestamp = ?
-        `);
+            // Accumulate incremental metrics (txCount)
+            for (const timeInterval of timeIntervals) {
+                const normalizedTimestamp = normalizeTimestamp(blockTimestamp, timeInterval);
+                const key = `${timeInterval},${normalizedTimestamp},${METRIC_txCount}`;
+                incrementalUpdates.set(key, (incrementalUpdates.get(key) || 0) + txCount);
+            }
 
-        const updateMetricStmt = this.indexingDb.prepare(`
-            INSERT INTO metrics (timeInterval, timestamp, metric, value) 
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(timeInterval, timestamp, metric) 
-            DO UPDATE SET value = ?
-        `);
-
-        for (const timeInterval of timeIntervals) {
-            const periodTimestamp = normalizeTimestamp(blockTimestamp, timeInterval);
-
-            // Batch insert all unique senders for this period
-            const insertBatch = this.indexingDb.transaction(() => {
-                for (const address of uniqueSenders) {
-                    insertStmt.run(timeInterval, periodTimestamp, address);
+            // Extract and accumulate active senders
+            const senderStart = performance.now();
+            const uniqueSenders = this.extractUniqueSenders(txs);
+            for (const sender of uniqueSenders) {
+                for (const timeInterval of timeIntervals) {
+                    const periodTimestamp = normalizeTimestamp(blockTimestamp, timeInterval);
+                    const key = `${timeInterval},${periodTimestamp}`;
+                    if (!activeSendersMap.has(key)) {
+                        activeSendersMap.set(key, new Set<string>());
+                    }
+                    activeSendersMap.get(key)!.add(sender);
                 }
-            });
-            insertBatch();
+            }
+            timings.senderProcessing += performance.now() - senderStart;
 
-            // Count total unique senders for this period
-            const countResult = countStmt.get(timeInterval, periodTimestamp) as { count: number };
+            // Extract and accumulate active addresses
+            const addressStart = performance.now();
+            const uniqueAddresses = this.extractUniqueAddresses(txs);
+            for (const address of uniqueAddresses) {
+                for (const timeInterval of timeIntervals) {
+                    const periodTimestamp = normalizeTimestamp(blockTimestamp, timeInterval);
+                    const key = `${timeInterval},${periodTimestamp}`;
+                    if (!activeAddressesMap.has(key)) {
+                        activeAddressesMap.set(key, new Set<string>());
+                    }
+                    activeAddressesMap.get(key)!.add(address);
+                }
+            }
+            timings.addressProcessing += performance.now() - addressStart;
 
-            // Update the metric with the total count
-            updateMetricStmt.run(timeInterval, periodTimestamp, METRIC_activeSenders, countResult.count, countResult.count);
+            // Update cumulative transaction count
+            this.cumulativeTxCount += txCount;
+
+            // Accumulate cumulative metrics (cumulativeTxCount)
+            for (const timeInterval of timeIntervals) {
+                const normalizedTimestamp = normalizeTimestamp(blockTimestamp, timeInterval);
+                const key = `${timeInterval},${normalizedTimestamp},${METRIC_cumulativeTxCount}`;
+                cumulativeUpdates.set(key, this.cumulativeTxCount);
+            }
+
+            // Count contract deployments in this block
+            const contractCount = countContractDeployments(txs, traces);
+            this.cumulativeContractCount += contractCount;
+
+            // Accumulate cumulative metrics (cumulativeContracts)
+            for (const timeInterval of timeIntervals) {
+                const normalizedTimestamp = normalizeTimestamp(blockTimestamp, timeInterval);
+                const key = `${timeInterval},${normalizedTimestamp},${METRIC_cumulativeContracts}`;
+                cumulativeUpdates.set(key, this.cumulativeContractCount);
+            }
         }
+        timings.dataExtraction = performance.now() - dataExtractionStart - timings.senderProcessing - timings.addressProcessing;
+
+        // Now apply all updates in a single transaction
+        const transactionStart = performance.now();
+        const transaction = this.indexingDb.transaction(() => {
+            // Prepare statements for batch operations
+            const incrementalStmt = this.indexingDb.prepare(`
+                INSERT INTO metrics (timeInterval, timestamp, metric, value) 
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(timeInterval, timestamp, metric) 
+                DO UPDATE SET value = value + ?
+            `);
+
+            const cumulativeStmt = this.indexingDb.prepare(`
+                INSERT INTO metrics (timeInterval, timestamp, metric, value) 
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(timeInterval, timestamp, metric) 
+                DO UPDATE SET value = ?
+            `);
+
+            const activeSenderStmt = this.indexingDb.prepare(`
+                INSERT OR IGNORE INTO active_senders (timeInterval, periodTimestamp, address) 
+                VALUES (?, ?, ?)
+            `);
+
+            const activeAddressStmt = this.indexingDb.prepare(`
+                INSERT OR IGNORE INTO active_addresses (timeInterval, periodTimestamp, address) 
+                VALUES (?, ?, ?)
+            `);
+
+            // Prepare count queries for active senders/addresses
+            const countSendersStmt = this.indexingDb.prepare(`
+                SELECT COUNT(DISTINCT address) as count 
+                FROM active_senders 
+                WHERE timeInterval = ? AND periodTimestamp = ?
+            `);
+
+            const countAddressesStmt = this.indexingDb.prepare(`
+                SELECT COUNT(DISTINCT address) as count 
+                FROM active_addresses 
+                WHERE timeInterval = ? AND periodTimestamp = ?
+            `);
+
+            // Apply incremental updates
+            const incrementalStart = performance.now();
+            for (const [key, value] of incrementalUpdates) {
+                const [timeInterval, timestamp, metric] = key.split(',').map(Number);
+                incrementalStmt.run(timeInterval, timestamp, metric, value, value);
+            }
+            timings.incrementalUpdates = performance.now() - incrementalStart;
+
+            // Apply cumulative updates
+            const cumulativeStart = performance.now();
+            for (const [key, value] of cumulativeUpdates) {
+                const [timeInterval, timestamp, metric] = key.split(',').map(Number);
+                cumulativeStmt.run(timeInterval, timestamp, metric, value, value);
+            }
+            timings.cumulativeUpdates = performance.now() - cumulativeStart;
+
+            // Insert active senders and update metrics
+            const activeSendersStart = performance.now();
+            for (const [key, senders] of activeSendersMap) {
+                const [timeInterval, periodTimestamp] = key.split(',').map(Number);
+
+                // Insert all unique senders for this period
+                for (const address of senders) {
+                    activeSenderStmt.run(timeInterval, periodTimestamp, address);
+                }
+
+                // Count total unique senders (including existing ones)
+                const countResult = countSendersStmt.get(timeInterval, periodTimestamp) as { count: number };
+
+                // Update the metric with the total count
+                cumulativeStmt.run(timeInterval, periodTimestamp, METRIC_activeSenders, countResult.count, countResult.count);
+            }
+            timings.activeSendersDb = performance.now() - activeSendersStart;
+
+            // Insert active addresses and update metrics
+            const activeAddressesStart = performance.now();
+            for (const [key, addresses] of activeAddressesMap) {
+                const [timeInterval, periodTimestamp] = key.split(',').map(Number);
+
+                // Insert all unique addresses for this period
+                for (const address of addresses) {
+                    activeAddressStmt.run(timeInterval, periodTimestamp, address);
+                }
+
+                // Count total unique addresses (including existing ones)
+                const countResult = countAddressesStmt.get(timeInterval, periodTimestamp) as { count: number };
+
+                // Update the metric with the total count
+                cumulativeStmt.run(timeInterval, periodTimestamp, METRIC_activeAddresses, countResult.count, countResult.count);
+            }
+            timings.activeAddressesDb = performance.now() - activeAddressesStart;
+        });
+
+        transaction();
+        timings.transaction = performance.now() - transactionStart;
+
+        const totalTime = performance.now() - startTime;
+        console.log(`MetricsIndexer batch (${blocks.length} blocks) took ${totalTime.toFixed(2)}ms:`);
+        console.log(`  - Data extraction: ${timings.dataExtraction.toFixed(2)}ms`);
+        console.log(`  - Sender processing: ${timings.senderProcessing.toFixed(2)}ms`);
+        console.log(`  - Address processing: ${timings.addressProcessing.toFixed(2)}ms`);
+        console.log(`  - Transaction total: ${timings.transaction.toFixed(2)}ms`);
+        console.log(`    - Incremental updates: ${timings.incrementalUpdates.toFixed(2)}ms`);
+        console.log(`    - Cumulative updates: ${timings.cumulativeUpdates.toFixed(2)}ms`);
+        console.log(`    - Active senders DB: ${timings.activeSendersDb.toFixed(2)}ms`);
+        console.log(`    - Active addresses DB: ${timings.activeAddressesDb.toFixed(2)}ms`);
     }
 
     private extractUniqueSenders(txs: LazyTx[]): Set<string> {
@@ -230,53 +326,6 @@ class MetricsIndexer implements Indexer {
         }
 
         return uniqueSenders;
-    }
-
-    private processActiveAddresses(txs: LazyTx[], blockTimestamp: number): void {
-        // Extract unique addresses (both from and to) from this block
-        const uniqueAddresses = this.extractUniqueAddresses(txs);
-
-        if (uniqueAddresses.size === 0) return;
-
-        // Process for each time interval
-        const timeIntervals = [TIME_INTERVAL_HOUR, TIME_INTERVAL_DAY, TIME_INTERVAL_WEEK, TIME_INTERVAL_MONTH];
-
-        // Prepare statements outside the loop for better performance
-        const insertStmt = this.indexingDb.prepare(`
-            INSERT OR IGNORE INTO active_addresses (timeInterval, periodTimestamp, address) 
-            VALUES (?, ?, ?)
-        `);
-
-        const countStmt = this.indexingDb.prepare(`
-            SELECT COUNT(DISTINCT address) as count 
-            FROM active_addresses 
-            WHERE timeInterval = ? AND periodTimestamp = ?
-        `);
-
-        const updateMetricStmt = this.indexingDb.prepare(`
-            INSERT INTO metrics (timeInterval, timestamp, metric, value) 
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(timeInterval, timestamp, metric) 
-            DO UPDATE SET value = ?
-        `);
-
-        for (const timeInterval of timeIntervals) {
-            const periodTimestamp = normalizeTimestamp(blockTimestamp, timeInterval);
-
-            // Batch insert all unique addresses for this period
-            const insertBatch = this.indexingDb.transaction(() => {
-                for (const address of uniqueAddresses) {
-                    insertStmt.run(timeInterval, periodTimestamp, address);
-                }
-            });
-            insertBatch();
-
-            // Count total unique addresses for this period
-            const countResult = countStmt.get(timeInterval, periodTimestamp) as { count: number };
-
-            // Update the metric with the total count
-            updateMetricStmt.run(timeInterval, periodTimestamp, METRIC_activeAddresses, countResult.count, countResult.count);
-        }
     }
 
     private extractUniqueAddresses(txs: LazyTx[]): Set<string> {

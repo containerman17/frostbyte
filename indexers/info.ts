@@ -23,7 +23,7 @@ class InfoIndexer implements Indexer {
         // No initialization needed - all data is already available
     }
 
-    indexBlock(block: LazyBlock, txs: LazyTx[], traces: LazyTraces | undefined): void {
+    indexBlocks(block: LazyBlock, txs: LazyTx[], traces: LazyTraces | undefined): void {
         // No indexing needed - all data is already available
     }
 

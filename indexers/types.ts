@@ -7,7 +7,7 @@ import { LazyTraces } from "../blockFetcher/lazy/LazyTrace";
 
 export interface Indexer {
     initialize(): void;
-    indexBlock(block: LazyBlock, txs: LazyTx[], traces: LazyTraces | undefined): void;
+    indexBlocks(blocks: { block: LazyBlock, txs: LazyTx[], traces: LazyTraces | undefined }[]): void;
     registerRoutes(app: OpenAPIHono): void;
 }
 
