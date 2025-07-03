@@ -62,7 +62,7 @@ export interface RpcBlock {
     timestamp: string;
     gasLimit: string;
     gasUsed: string;
-    baseFeePerGas: string;
+    baseFeePerGas?: string;
     miner: string;
     difficulty: string;
     totalDifficulty: string;
@@ -81,6 +81,8 @@ export interface RpcBlock {
     excessBlobGas?: string;
     parentBeaconBlockRoot?: string;
     blockGasCost?: string;
+    blockExtraData?: string;
+    extDataHash?: string;
 }
 
 export const TRACE_CALL_TYPES = [
