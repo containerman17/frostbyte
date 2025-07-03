@@ -1,6 +1,8 @@
-export const IS_DEVELOPMENT = process.env['NODE_ENV'] !== 'production';
 import dotenv from 'dotenv';
 dotenv.config();
+
+export const IS_DEVELOPMENT = process.env['NODE_ENV'] !== 'production';
+
 
 function requiredEnvString(name: string): string {
     const value = process.env[name];
@@ -19,6 +21,14 @@ function requiredEnvInt(name: string): number {
     return parsed;
 }
 
+function optionalEnvString(name: string, defaultValue: string): string {
+    const value = process.env[name];
+    if (!value) {
+        return defaultValue;
+    }
+    return value;
+}
+
 export const RPC_URL = requiredEnvString('RPC_URL');
 export const CHAIN_ID = requiredEnvString('CHAIN_ID');
 export const DATA_DIR = requiredEnvString('DATA_DIR');
@@ -27,3 +37,4 @@ export const REQUEST_BATCH_SIZE = requiredEnvInt('REQUEST_BATCH_SIZE');
 export const MAX_CONCURRENT = requiredEnvInt('MAX_CONCURRENT');
 export const BLOCKS_PER_BATCH = requiredEnvInt('BLOCKS_PER_BATCH');
 export const DEBUG_RPC_AVAILABLE = requiredEnvString('DEBUG_RPC_AVAILABLE') === 'true';
+export const TEST_KILL_INDEXER_WHEN_DONE = optionalEnvString('TEST_KILL_INDEXER_WHEN_DONE', 'false') === 'true';

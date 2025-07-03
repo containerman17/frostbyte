@@ -6,14 +6,20 @@ const ERROR_PAUSE_TIME = 10 * 1000;
 
 export async function startFetchingLoop(blockDB: BlockDB, batchRpc: BatchRpc, blocksPerBatch: number) {
     let latestRemoteBlock = blockDB.getBlockchainLatestBlockNum()
-    //lazy load latest block from the chain
-    if (latestRemoteBlock === -1) {
-        const newLatestRemoteBlock = await batchRpc.getCurrentBlockNumber();
-        blockDB.setBlockchainLatestBlockNum(newLatestRemoteBlock);
-        latestRemoteBlock = newLatestRemoteBlock;
+    while (true) {//Kinda wait for readiness
+        try {
+            const newLatestRemoteBlock = await batchRpc.getCurrentBlockNumber();
+            blockDB.setBlockchainLatestBlockNum(newLatestRemoteBlock);
+            latestRemoteBlock = newLatestRemoteBlock;
+            break;
+        } catch (error) {
+            console.error(error);
+            await new Promise(resolve => setTimeout(resolve, ERROR_PAUSE_TIME));
+        }
     }
 
     let lastStoredBlock = blockDB.getLastStoredBlockNumber();
+
 
     if (blockDB.getEvmChainId() === -1) {
         const newEvmChainId = await batchRpc.getEvmChainId();

@@ -1,0 +1,30 @@
+path: /metrics/cumulativeContracts?pageSize=2&timeInterval=day&endTimestamp=1751248800
+status: 200
+glacierBody: |-
+  {
+    "results": [
+      {
+        "value": 13551,
+        "timestamp": 1751241600
+      },
+      {
+        "value": 13522,
+        "timestamp": 1751155200
+      }
+    ],
+    "nextPageToken": "9e81c88f-4a5c-4020-a4a5-c0d5db8c6105"
+  }
+expectedBody: |-
+  {
+    "results": [
+      {
+        "value": 13396,
+        "timestamp": 1751241600
+      },
+      {
+        "value": 13367,
+        "timestamp": 1751155200
+      }
+    ],
+    "nextPageToken": "1751155200"
+  }

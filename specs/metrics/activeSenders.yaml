@@ -1,0 +1,154 @@
+path: /metrics/activeSenders?pageSize=2&endTimestamp=1751248800
+status: 200
+glacierBody: |-
+  {
+    "results": [
+      {
+        "value": 20,
+        "timestamp": 1751248800
+      },
+      {
+        "value": 18,
+        "timestamp": 1751245200
+      }
+    ],
+    "nextPageToken": "77e0b3ef-6c2d-448e-9b78-a86c7f153cb6"
+  }
+expectedBody: |-
+  {
+    "results": [
+      {
+        "value": 20,
+        "timestamp": 1751248800
+      },
+      {
+        "value": 18,
+        "timestamp": 1751245200
+      }
+    ],
+    "nextPageToken": "1751245200"
+  }
+---
+path: /metrics/activeSenders?pageSize=2&timeInterval=day&endTimestamp=1751248800
+status: 200
+glacierBody: |-
+  {
+    "results": [
+      {
+        "value": 208,
+        "timestamp": 1751241600
+      },
+      {
+        "value": 209,
+        "timestamp": 1751155200
+      }
+    ],
+    "nextPageToken": "4dcec954-585d-468f-96ab-1c3a389054a5"
+  }
+expectedBody: |-
+  {
+    "results": [
+      {
+        "value": 208,
+        "timestamp": 1751241600
+      },
+      {
+        "value": 209,
+        "timestamp": 1751155200
+      }
+    ],
+    "nextPageToken": "1751155200"
+  }
+---
+path: /metrics/activeSenders?pageSize=2&timeInterval=month&endTimestamp=1751248800
+status: 200
+glacierBody: |-
+  {
+    "results": [
+      {
+        "value": 251,
+        "timestamp": 1748736000
+      },
+      {
+        "value": 270,
+        "timestamp": 1746057600
+      }
+    ],
+    "nextPageToken": "33c04223-7701-4c54-a365-c7210a90ac79"
+  }
+expectedBody: |-
+  {
+    "results": [
+      {
+        "value": 251,
+        "timestamp": 1748736000
+      },
+      {
+        "value": 270,
+        "timestamp": 1746057600
+      }
+    ],
+    "nextPageToken": "1746057600"
+  }
+---
+path: /metrics/activeSenders?pageSize=2&timeInterval=week&endTimestamp=1751248800
+status: 200
+glacierBody: |-
+  {
+    "results": [
+      {
+        "value": 210,
+        "timestamp": 1751241600
+      },
+      {
+        "value": 211,
+        "timestamp": 1750636800
+      }
+    ],
+    "nextPageToken": "e25e6f0a-b096-42a8-b49e-b42d49c9bcd4"
+  }
+expectedBody: |-
+  {
+    "results": [
+      {
+        "value": 211,
+        "timestamp": 1751241600
+      },
+      {
+        "value": 224,
+        "timestamp": 1750636800
+      }
+    ],
+    "nextPageToken": "1750636800"
+  }
+---
+path: /metrics/activeSenders?pageSize=2&timeInterval=hour&endTimestamp=1751248800
+status: 200
+glacierBody: |-
+  {
+    "results": [
+      {
+        "value": 20,
+        "timestamp": 1751248800
+      },
+      {
+        "value": 18,
+        "timestamp": 1751245200
+      }
+    ],
+    "nextPageToken": "77e0b3ef-6c2d-448e-9b78-a86c7f153cb6"
+  }
+expectedBody: |-
+  {
+    "results": [
+      {
+        "value": 20,
+        "timestamp": 1751248800
+      },
+      {
+        "value": 18,
+        "timestamp": 1751245200
+      }
+    ],
+    "nextPageToken": "1751245200"
+  }

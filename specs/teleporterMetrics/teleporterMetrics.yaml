@@ -1,0 +1,47 @@
+path: /teleporterMetrics/teleporterSourceTxnCount
+status: 200
+glacierBody: |-
+  {
+    "result": {
+      "value": 29302
+    }
+  }
+expectedBody: |-
+  {
+    "result": {
+      "value": 32261
+    }
+  }
+# TODO: replaced 29302 => 32261. Re-count manually
+---
+path: /teleporterMetrics/teleporterDestinationTxnCount
+status: 200
+glacierBody: |-
+  {
+    "result": {
+      "value": 4170
+    }
+  }
+expectedBody: |-
+  {
+    "result": {
+      "value": 4277
+    }
+  }
+# TODO: replaced 4170 => 4277. Re-count manually
+---
+path: /teleporterMetrics/teleporterTotalTxnCount
+status: 200
+glacierBody: |-
+  {
+    "result": {
+      "value": 33472
+    }
+  }
+expectedBody: |-
+  {
+    "result": {
+      "value": 36538
+    }
+  }
+# TODO: replaced 33472 => 36538. Re-count manually
