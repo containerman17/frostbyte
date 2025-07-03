@@ -95,9 +95,10 @@ export class LazyBlock {
         return this.#gasUsed ??= deserializeHex(this.parts[5]!)
     }
 
-    #baseFeePerGas?: string
+    #baseFeePerGas?: string | undefined
     get baseFeePerGas() {
-        return this.#baseFeePerGas ??= deserializeHex(this.parts[6]!)
+        if (this.#baseFeePerGas !== undefined) return this.#baseFeePerGas
+        return this.#baseFeePerGas = deserializeOptionalHex(this.parts[6])
     }
 
     #miner?: string
@@ -198,6 +199,18 @@ export class LazyBlock {
         return this.#blockGasCost = deserializeOptionalHex(this.parts[24])
     }
 
+    #blockExtraData?: string | undefined
+    get blockExtraData() {
+        if (this.#blockExtraData !== undefined) return this.#blockExtraData
+        return this.#blockExtraData = deserializeOptionalHex(this.parts[25])
+    }
+
+    #extDataHash?: string | undefined
+    get extDataHash() {
+        if (this.#extDataHash !== undefined) return this.#extDataHash
+        return this.#extDataHash = deserializeOptionalFixedHex(this.parts[26])
+    }
+
     /* if you ever need full RLP again */
     raw() {
         return this.blob
@@ -210,13 +223,14 @@ export const encodeLazyBlock = (i: RpcBlock): Uint8Array => {
         // Validate no unused fields
         const expectedFields = new Set([
             'hash', 'number', 'parentHash', 'timestamp', 'gasLimit', 'gasUsed',
-            'baseFeePerGas', 'miner', 'difficulty', 'totalDifficulty', 'size',
+            'miner', 'difficulty', 'totalDifficulty', 'size',
             'stateRoot', 'transactionsRoot', 'receiptsRoot', 'logsBloom',
             'extraData', 'mixHash', 'nonce', 'sha3Uncles', 'uncles', 'transactions'
         ])
 
         const optionalFields = new Set([
-            'blobGasUsed', 'excessBlobGas', 'parentBeaconBlockRoot', 'blockGasCost'
+            'baseFeePerGas', 'blobGasUsed', 'excessBlobGas', 'parentBeaconBlockRoot', 'blockGasCost',
+            'blockExtraData', 'extDataHash'
         ])
 
         const actualFields = new Set(Object.keys(i))
@@ -258,7 +272,9 @@ export const encodeLazyBlock = (i: RpcBlock): Uint8Array => {
         i.blobGasUsed || new Uint8Array(),
         i.excessBlobGas || new Uint8Array(),
         i.parentBeaconBlockRoot || new Uint8Array(),
-        i.blockGasCost || new Uint8Array()
+        i.blockGasCost || new Uint8Array(),
+        i.blockExtraData || new Uint8Array(),
+        i.extDataHash || new Uint8Array()
     ]
 
     const rlp = RLP.encode(data)
@@ -276,7 +292,6 @@ export function lazyBlockToBlock(lazyBlock: LazyBlock, transactions: LazyTx[]): 
         timestamp: '0x' + lazyBlock.timestamp.toString(16),
         gasLimit: lazyBlock.gasLimit,
         gasUsed: lazyBlock.gasUsed,
-        baseFeePerGas: lazyBlock.baseFeePerGas,
         miner: lazyBlock.miner,
         difficulty: lazyBlock.difficulty,
         totalDifficulty: lazyBlock.totalDifficulty,
@@ -291,9 +306,12 @@ export function lazyBlockToBlock(lazyBlock: LazyBlock, transactions: LazyTx[]): 
         sha3Uncles: lazyBlock.sha3Uncles,
         uncles: lazyBlock.uncles,
         transactions: transactions.map(tx => lazyTxToTx(tx)),
+        ...(lazyBlock.baseFeePerGas !== undefined && { baseFeePerGas: lazyBlock.baseFeePerGas }),
         ...(lazyBlock.blobGasUsed !== undefined && { blobGasUsed: lazyBlock.blobGasUsed }),
         ...(lazyBlock.excessBlobGas !== undefined && { excessBlobGas: lazyBlock.excessBlobGas }),
         ...(lazyBlock.parentBeaconBlockRoot !== undefined && { parentBeaconBlockRoot: lazyBlock.parentBeaconBlockRoot }),
         ...(lazyBlock.blockGasCost !== undefined && { blockGasCost: lazyBlock.blockGasCost }),
+        ...(lazyBlock.blockExtraData !== undefined && { blockExtraData: lazyBlock.blockExtraData }),
+        ...(lazyBlock.extDataHash !== undefined && { extDataHash: lazyBlock.extDataHash }),
     }
 }       

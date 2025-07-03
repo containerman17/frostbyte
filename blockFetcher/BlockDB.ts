@@ -49,26 +49,40 @@ export class BlockDB {
         let queryTime = 0;
         let decodingTime = 0;
 
-        // First, efficiently find which blocks to fetch based on transaction count
+        // First, find blocks with their transaction counts using a LEFT JOIN to include empty blocks
         const planStart = performance.now();
-        const selectTxCounts = this.prepQuery(`
-            SELECT block_id, COUNT(*) as tx_count 
-            FROM txs 
-            WHERE block_id >= ? 
-            GROUP BY block_id 
-            ORDER BY block_id 
-            LIMIT ${Number(maxTransactions)}
+        const selectBlocksWithCounts = this.prepQuery(`
+            SELECT 
+                b.id as block_id,
+                COALESCE(t.tx_count, 0) as tx_count
+            FROM blocks b
+            LEFT JOIN (
+                SELECT block_id, COUNT(*) as tx_count
+                FROM txs
+                GROUP BY block_id
+            ) t ON b.id = t.block_id
+            WHERE b.id >= ?
+            ORDER BY b.id
+            LIMIT 1000
         `);
-        const txCounts = selectTxCounts.all(start) as { block_id: number, tx_count: number }[];
+        const blocksWithCounts = selectBlocksWithCounts.all(start) as { block_id: number, tx_count: number }[];
 
+        if (blocksWithCounts.length === 0) {
+            return [];
+        }
+
+        // Determine which blocks to fetch based on transaction limit
         let totalTxs = 0;
         let blocksToFetch: number[] = [];
-        for (const { block_id, tx_count } of txCounts) {
+
+        for (const { block_id, tx_count } of blocksWithCounts) {
             if (totalTxs + tx_count > maxTransactions && blocksToFetch.length > 0) {
                 break;
             }
+
             blocksToFetch.push(block_id);
             totalTxs += tx_count;
+
             if (totalTxs >= maxTransactions) {
                 break;
             }
@@ -109,23 +123,28 @@ export class BlockDB {
             decodingTime += performance.now() - blockDecodeStart;
 
             const txs: LazyTx[] = [];
-            for (let txIndex = 0; txIndex < block.transactionCount; txIndex++) {
-                // Time tx query
-                const txQueryStart = performance.now();
-                const selectTx = this.prepQuery('SELECT data FROM txs WHERE block_id = ? AND tx_ix = ?');
-                const txResult = selectTx.get(blockNumber, txIndex) as { data: Buffer } | undefined;
-                queryTime += performance.now() - txQueryStart;
 
-                if (!txResult) throw new Error(`Tx ${blockNumber}:${txIndex} not found`);
+            // Only query transactions if the block has any
+            if (block.transactionCount > 0) {
+                for (let txIndex = 0; txIndex < block.transactionCount; txIndex++) {
+                    // Time tx query
+                    const txQueryStart = performance.now();
+                    const selectTx = this.prepQuery('SELECT data FROM txs WHERE block_id = ? AND tx_ix = ?');
+                    const txResult = selectTx.get(blockNumber, txIndex) as { data: Buffer } | undefined;
+                    queryTime += performance.now() - txQueryStart;
 
-                // Time tx decoding
-                const txDecodeStart = performance.now();
-                const decompressedTxData = lz4UncompressSync(txResult.data);
-                const tx = new LazyTx(decompressedTxData);
-                decodingTime += performance.now() - txDecodeStart;
+                    if (!txResult) throw new Error(`Tx ${blockNumber}:${txIndex} not found`);
 
-                txs.push(tx);
+                    // Time tx decoding
+                    const txDecodeStart = performance.now();
+                    const decompressedTxData = lz4UncompressSync(txResult.data);
+                    const tx = new LazyTx(decompressedTxData);
+                    decodingTime += performance.now() - txDecodeStart;
+
+                    txs.push(tx);
+                }
             }
+
             result.push({ block, txs, traces });
         }
 

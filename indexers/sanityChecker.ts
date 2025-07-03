@@ -10,13 +10,16 @@ import { DEBUG_RPC_AVAILABLE, IS_DEVELOPMENT } from "../config";
 let lastBlockIndexed = -1
 
 class SanityChecker implements Indexer {
-    initialize(): void { }
+    initialize(): void {
+    }
 
     //TODO: unite with indexBlock
     indexBlocks(blocks: { block: LazyBlock, txs: LazyTx[], traces: LazyTraces | undefined }[]): void {
+
         for (const block of blocks) {
             this.indexBlock(block.block, block.txs, block.traces);
         }
+
     }
 
     private indexBlock(block: LazyBlock, txs: LazyTx[], traces: LazyTraces | undefined): void {
@@ -31,6 +34,8 @@ class SanityChecker implements Indexer {
         }
 
         if (lastBlockIndexed !== -1 && (lastBlockIndexed + 1) !== (block.number)) {
+            console.error(`[SanityChecker] ERROR: Expected block ${lastBlockIndexed + 1} but got block ${block.number}`);
+            console.error(`[SanityChecker] Worker ID: ${process.pid}`);
             throw new Error(`Sanity checker failed: Block ${block.number} is not the next block after ${lastBlockIndexed}`);
         }
         lastBlockIndexed = Number(block.number);

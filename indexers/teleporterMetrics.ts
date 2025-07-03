@@ -67,7 +67,7 @@ class TeleporterMetricsIndexer implements Indexer {
         for (const tx of txs) {
             // Check logs for relevant events
             for (const log of tx.logs) {
-                if (log.address.toLowerCase() !== TELEPORTER_ADDRESS.toLowerCase()) {
+                if (log.address !== TELEPORTER_ADDRESS) {
                     continue;
                 }
 
