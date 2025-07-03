@@ -22,15 +22,12 @@ import {
     METRIC_activeAddresses,
     isCumulativeMetric,
     normalizeTimestamp,
-    getTimeIntervalId
+    getTimeIntervalId,
+    countCreateCallsInTrace
 } from "./utils";
 
 // Import query handlers
 import { handleIncrementalMetricQuery, handleCumulativeMetricQuery } from "./query";
-
-// Import metric handlers
-import { countContractDeployments } from "./handlers/ContractMetrics";
-import { countTransactions } from "./handlers/TxMetrics";
 
 // Define available metrics
 const METRICS = {
@@ -113,8 +110,6 @@ class MetricsIndexer implements Indexer {
         const startTime = performance.now();
         const timings = {
             dataExtraction: 0,
-            senderProcessing: 0,
-            addressProcessing: 0,
             transaction: 0,
             incrementalUpdates: 0,
             cumulativeUpdates: 0,
@@ -131,12 +126,60 @@ class MetricsIndexer implements Indexer {
         const activeAddressesMap = new Map<string, Set<string>>(); // key = "timeInterval,periodTimestamp"
 
         const timeIntervals = [TIME_INTERVAL_HOUR, TIME_INTERVAL_DAY, TIME_INTERVAL_WEEK, TIME_INTERVAL_MONTH];
+        const TRANSFER_EVENT_SIGNATURE = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 
         // Process all blocks and accumulate updates
         const dataExtractionStart = performance.now();
         for (const { block, txs, traces } of blocks) {
             const blockTimestamp = block.timestamp;
-            const txCount = countTransactions(txs);
+
+            // Single pass through transactions
+            let txCount = 0;
+            let contractCount = 0;
+            const uniqueSenders = new Set<string>();
+            const uniqueAddresses = new Set<string>();
+
+            for (const tx of txs) {
+                txCount++;
+
+                // Extract senders and addresses
+                uniqueSenders.add(tx.from);
+                uniqueAddresses.add(tx.from);
+
+                if (tx.to) {
+                    uniqueAddresses.add(tx.to);
+                }
+
+                // Count contract deployments (no traces fallback)
+                if (!traces && tx.contractAddress) {
+                    contractCount++;
+                }
+
+                // Process Transfer events for both senders and addresses
+                for (const log of tx.logs) {
+                    if (log.topics.length >= 2 && log.topics[0] === TRANSFER_EVENT_SIGNATURE) {
+                        // Extract 'from' address
+                        if (log.topics[1]) {
+                            const fromAddress = "0x" + log.topics[1].slice(-40);
+                            uniqueSenders.add(fromAddress);
+                            uniqueAddresses.add(fromAddress);
+                        }
+
+                        // Extract 'to' address for activeAddresses
+                        if (log.topics.length >= 3 && log.topics[2]) {
+                            const toAddress = "0x" + log.topics[2].slice(-40);
+                            uniqueAddresses.add(toAddress);
+                        }
+                    }
+                }
+            }
+
+            // Count contract deployments from traces if available
+            if (traces) {
+                for (const trace of traces.traces) {
+                    contractCount += countCreateCallsInTrace(trace.result);
+                }
+            }
 
             // Accumulate incremental metrics (txCount)
             for (const timeInterval of timeIntervals) {
@@ -145,9 +188,7 @@ class MetricsIndexer implements Indexer {
                 incrementalUpdates.set(key, (incrementalUpdates.get(key) || 0) + txCount);
             }
 
-            // Extract and accumulate active senders
-            const senderStart = performance.now();
-            const uniqueSenders = this.extractUniqueSenders(txs);
+            // Accumulate active senders
             for (const sender of uniqueSenders) {
                 for (const timeInterval of timeIntervals) {
                     const periodTimestamp = normalizeTimestamp(blockTimestamp, timeInterval);
@@ -158,11 +199,8 @@ class MetricsIndexer implements Indexer {
                     activeSendersMap.get(key)!.add(sender);
                 }
             }
-            timings.senderProcessing += performance.now() - senderStart;
 
-            // Extract and accumulate active addresses
-            const addressStart = performance.now();
-            const uniqueAddresses = this.extractUniqueAddresses(txs);
+            // Accumulate active addresses
             for (const address of uniqueAddresses) {
                 for (const timeInterval of timeIntervals) {
                     const periodTimestamp = normalizeTimestamp(blockTimestamp, timeInterval);
@@ -173,7 +211,6 @@ class MetricsIndexer implements Indexer {
                     activeAddressesMap.get(key)!.add(address);
                 }
             }
-            timings.addressProcessing += performance.now() - addressStart;
 
             // Update cumulative transaction count
             this.cumulativeTxCount += txCount;
@@ -185,8 +222,7 @@ class MetricsIndexer implements Indexer {
                 cumulativeUpdates.set(key, this.cumulativeTxCount);
             }
 
-            // Count contract deployments in this block
-            const contractCount = countContractDeployments(txs, traces);
+            // Update cumulative contract count
             this.cumulativeContractCount += contractCount;
 
             // Accumulate cumulative metrics (cumulativeContracts)
@@ -196,7 +232,7 @@ class MetricsIndexer implements Indexer {
                 cumulativeUpdates.set(key, this.cumulativeContractCount);
             }
         }
-        timings.dataExtraction = performance.now() - dataExtractionStart - timings.senderProcessing - timings.addressProcessing;
+        timings.dataExtraction = performance.now() - dataExtractionStart;
 
         // Now apply all updates in a single transaction
         const transactionStart = performance.now();
@@ -298,68 +334,11 @@ class MetricsIndexer implements Indexer {
         const totalTime = performance.now() - startTime;
         console.log(`MetricsIndexer batch (${blocks.length} blocks) took ${totalTime.toFixed(2)}ms:`);
         console.log(`  - Data extraction: ${timings.dataExtraction.toFixed(2)}ms`);
-        console.log(`  - Sender processing: ${timings.senderProcessing.toFixed(2)}ms`);
-        console.log(`  - Address processing: ${timings.addressProcessing.toFixed(2)}ms`);
         console.log(`  - Transaction total: ${timings.transaction.toFixed(2)}ms`);
         console.log(`    - Incremental updates: ${timings.incrementalUpdates.toFixed(2)}ms`);
         console.log(`    - Cumulative updates: ${timings.cumulativeUpdates.toFixed(2)}ms`);
         console.log(`    - Active senders DB: ${timings.activeSendersDb.toFixed(2)}ms`);
         console.log(`    - Active addresses DB: ${timings.activeAddressesDb.toFixed(2)}ms`);
-    }
-
-    private extractUniqueSenders(txs: LazyTx[]): Set<string> {
-        const uniqueSenders = new Set<string>();
-        const TRANSFER_EVENT_SIGNATURE = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
-
-        for (const tx of txs) {
-            // Add transaction sender
-            uniqueSenders.add(tx.from.toLowerCase());
-
-            // Check logs for Transfer events
-            for (const log of tx.logs) {
-                if (log.topics.length >= 2 && log.topics[0] === TRANSFER_EVENT_SIGNATURE && log.topics[1]) {
-                    // Extract 'from' address from topics[1] (remove 0x prefix and padding)
-                    const fromAddress = "0x" + log.topics[1].slice(-40);
-                    uniqueSenders.add(fromAddress.toLowerCase());
-                }
-            }
-        }
-
-        return uniqueSenders;
-    }
-
-    private extractUniqueAddresses(txs: LazyTx[]): Set<string> {
-        const uniqueAddresses = new Set<string>();
-        const TRANSFER_EVENT_SIGNATURE = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
-
-        for (const tx of txs) {
-            // Add transaction sender (from)
-            uniqueAddresses.add(tx.from.toLowerCase());
-
-            // Add transaction recipient (to) if it exists
-            if (tx.to) {
-                uniqueAddresses.add(tx.to.toLowerCase());
-            }
-
-            // Check logs for Transfer events
-            for (const log of tx.logs) {
-                if (log.topics.length >= 3 && log.topics[0] === TRANSFER_EVENT_SIGNATURE) {
-                    // Extract 'from' address from topics[1] (remove 0x prefix and padding)
-                    if (log.topics[1]) {
-                        const fromAddress = "0x" + log.topics[1].slice(-40);
-                        uniqueAddresses.add(fromAddress.toLowerCase());
-                    }
-
-                    // Extract 'to' address from topics[2] (remove 0x prefix and padding)
-                    if (log.topics[2]) {
-                        const toAddress = "0x" + log.topics[2].slice(-40);
-                        uniqueAddresses.add(toAddress.toLowerCase());
-                    }
-                }
-            }
-        }
-
-        return uniqueAddresses;
     }
 
     registerRoutes(app: OpenAPIHono): void {
