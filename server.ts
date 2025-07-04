@@ -1,9 +1,8 @@
 import { BlockDB } from './blockFetcher/BlockDB';
-import { createRPCIndexer } from './indexers/rpc';
 import { OpenAPIHono } from '@hono/zod-openapi';
 import Database from 'better-sqlite3';
 import { serve } from '@hono/node-server';
-import { IS_DEVELOPMENT, DEBUG_RPC_AVAILABLE } from './config';
+import {  DEBUG_RPC_AVAILABLE } from './config';
 import { initializeIndexingDB } from './lib/dbHelper';
 import { loadPlugins } from './lib/plugins';
 import path from 'node:path';
