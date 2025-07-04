@@ -19,6 +19,7 @@ async function startIndexer(
     indexingDb: Database.Database,
     exitWhenDone: boolean
 ): Promise<void> {
+    console.log(`[${indexer.name}] Starting indexer`);
     const name = indexer.name;
     const version = indexer.version;
 
@@ -48,10 +49,12 @@ async function startIndexer(
 
     const runIndexing = indexingDb.transaction(() => {
         const lastIndexedTx = getIntValue(indexingDb, `lastIndexedTx_${name}`, -1);
+
         const getStart = performance.now();
-        const transactions = blocksDb.getTxBatch(lastIndexedTx, 10 * 1000, indexer.usesTraces);
+        const transactions = blocksDb.getTxBatch(lastIndexedTx, 10000, indexer.usesTraces);
         const indexingStart = performance.now();
         hadSomethingToIndex = transactions.txs.length > 0;
+
 
         if (!hadSomethingToIndex) {
             consecutiveEmptyBatches++;
