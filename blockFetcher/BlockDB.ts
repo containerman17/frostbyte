@@ -42,114 +42,87 @@ export class BlockDB {
         this.hasDebug = hasDebug;
     }
 
-
-    //TODO: could be more efficient, but decoding is 60% of the time now. So 2x faster queries would improve the overall performance only by 20%.
     getBlocks(start: number, maxTransactions: number): { block: LazyBlock, txs: LazyTx[], traces: LazyTraces | undefined }[] {
         const totalStart = performance.now();
-        let queryTime = 0;
-        let decodingTime = 0;
 
-        // First, find blocks with their transaction counts using a LEFT JOIN to include empty blocks
-        const planStart = performance.now();
-        const selectBlocksWithCounts = this.prepQuery(`
-            SELECT 
-                b.id as block_id,
-                COALESCE(t.tx_count, 0) as tx_count
-            FROM blocks b
-            LEFT JOIN (
-                SELECT block_id, COUNT(*) as tx_count
-                FROM txs
-                GROUP BY block_id
-            ) t ON b.id = t.block_id
-            WHERE b.id >= ?
-            ORDER BY b.id
-            LIMIT 1000
+        // Fetch blocks with a reasonable limit
+        const selectBlocks = this.prepQuery(`
+            SELECT id, data, traces 
+            FROM blocks 
+            WHERE id >= ? 
+            ORDER BY id 
+            LIMIT 10010
         `);
-        const blocksWithCounts = selectBlocksWithCounts.all(start) as { block_id: number, tx_count: number }[];
+        const blockRows = selectBlocks.all(start) as { id: number, data: Buffer, traces: Buffer | null }[];
 
-        if (blocksWithCounts.length === 0) {
+        if (blockRows.length === 0) {
             return [];
         }
 
-        // Determine which blocks to fetch based on transaction limit
-        let totalTxs = 0;
-        let blocksToFetch: number[] = [];
+        const blockIds = blockRows.map(row => row.id);
 
-        for (const { block_id, tx_count } of blocksWithCounts) {
-            if (totalTxs + tx_count > maxTransactions && blocksToFetch.length > 0) {
+        // Fetch all transactions for these blocks in one query
+        const selectTxs = this.prepQuery(`
+            SELECT block_id, tx_ix, data 
+            FROM txs 
+            WHERE block_id IN (${blockIds.map(() => '?').join(',')})
+            ORDER BY block_id, tx_ix
+        `);
+        const txRows = selectTxs.all(...blockIds) as { block_id: number, tx_ix: number, data: Buffer }[];
+
+        // Group transactions by block
+        const txsByBlock = new Map<number, { tx_ix: number, data: Buffer }[]>();
+        for (const tx of txRows) {
+            if (!txsByBlock.has(tx.block_id)) {
+                txsByBlock.set(tx.block_id, []);
+            }
+            txsByBlock.get(tx.block_id)!.push(tx);
+        }
+
+        // Process blocks in order, respecting transaction limit
+        const result: { block: LazyBlock, txs: LazyTx[], traces: LazyTraces | undefined }[] = [];
+        let totalTxs = 0;
+        console.log(`Queryies took ${performance.now() - totalStart}ms`);
+
+        for (const blockRow of blockRows) {
+            const blockTxs = txsByBlock.get(blockRow.id) || [];
+
+            // Check if adding this block would exceed the transaction limit
+            if (totalTxs + blockTxs.length > maxTransactions && result.length > 0) {
                 break;
             }
 
-            blocksToFetch.push(block_id);
-            totalTxs += tx_count;
+            // Decode block
+            const decompressedBlockData = lz4UncompressSync(blockRow.data);
+            const block = new LazyBlock(decompressedBlockData);
+
+            // Decode traces if hasDebug
+            let traces: LazyTraces | undefined = undefined;
+            if (this.hasDebug) {
+                if (!blockRow.traces) {
+                    throw new Error(`hasDebug is true but no traces found for block ${blockRow.id}`);
+                }
+                const decompressedTracesData = lz4UncompressSync(blockRow.traces);
+                traces = new LazyTraces(decompressedTracesData);
+            }
+
+            // Decode transactions
+            const txs: LazyTx[] = [];
+            for (const txRow of blockTxs) {
+                const decompressedTxData = lz4UncompressSync(txRow.data);
+                txs.push(new LazyTx(decompressedTxData));
+            }
+
+            result.push({ block, txs, traces });
+            totalTxs += blockTxs.length;
 
             if (totalTxs >= maxTransactions) {
                 break;
             }
         }
 
-        const planTime = performance.now() - planStart;
-        queryTime += planTime;
-
-        if (blocksToFetch.length === 0) {
-            return [];
-        }
-
-        let result: { block: LazyBlock, txs: LazyTx[], traces: LazyTraces | undefined }[] = [];
-
-        for (const blockNumber of blocksToFetch) {
-            // Time block query
-            const blockQueryStart = performance.now();
-            const selectBlock = this.prepQuery('SELECT data, traces FROM blocks WHERE id = ?');
-            const blockResult = selectBlock.get(blockNumber) as { data: Buffer, traces: Buffer | null } | undefined;
-            queryTime += performance.now() - blockQueryStart;
-
-            if (!blockResult) throw new Error(`Block ${blockNumber} not found`);
-
-            // Time block decoding
-            const blockDecodeStart = performance.now();
-            const decompressedBlockData = lz4UncompressSync(blockResult.data);
-            const block = new LazyBlock(decompressedBlockData);
-
-            // Decode traces based on hasDebug flag
-            let traces: LazyTraces | undefined = undefined;
-            if (this.hasDebug) {
-                if (!blockResult.traces) {
-                    throw new Error(`hasDebug is true but no traces found for block ${blockNumber} - data corruption`);
-                }
-                const decompressedTracesData = lz4UncompressSync(blockResult.traces);
-                traces = new LazyTraces(decompressedTracesData);
-            }
-            decodingTime += performance.now() - blockDecodeStart;
-
-            const txs: LazyTx[] = [];
-
-            // Only query transactions if the block has any
-            if (block.transactionCount > 0) {
-                for (let txIndex = 0; txIndex < block.transactionCount; txIndex++) {
-                    // Time tx query
-                    const txQueryStart = performance.now();
-                    const selectTx = this.prepQuery('SELECT data FROM txs WHERE block_id = ? AND tx_ix = ?');
-                    const txResult = selectTx.get(blockNumber, txIndex) as { data: Buffer } | undefined;
-                    queryTime += performance.now() - txQueryStart;
-
-                    if (!txResult) throw new Error(`Tx ${blockNumber}:${txIndex} not found`);
-
-                    // Time tx decoding
-                    const txDecodeStart = performance.now();
-                    const decompressedTxData = lz4UncompressSync(txResult.data);
-                    const tx = new LazyTx(decompressedTxData);
-                    decodingTime += performance.now() - txDecodeStart;
-
-                    txs.push(tx);
-                }
-            }
-
-            result.push({ block, txs, traces });
-        }
-
         const totalTime = performance.now() - totalStart;
-        console.log(`getBlocks(${start}, max ${maxTransactions} txs): got ${totalTxs} txs in ${blocksToFetch.length} blocks, total=${Math.round(totalTime)}ms, query=${Math.round(queryTime)}ms, decode=${Math.round(decodingTime)}ms`);
+        console.log(`getBlocks(${start}, max ${maxTransactions} txs): got ${totalTxs} txs in ${result.length} blocks, total=${Math.round(totalTime)}ms`);
 
         return result;
     }

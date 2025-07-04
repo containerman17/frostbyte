@@ -40,19 +40,20 @@ export class IndexingDbHelper {
 
 export function executePragmas({ db, isReadonly }: { db: Database, isReadonly: boolean }): void {
     if (isReadonly) {
-        // Readonly: optimize for fast reads
+        // Readonly: optimize for fast reads with mmap
         db.pragma('mmap_size = 53687091200'); // 50GB - map entire database
-        db.pragma('cache_size = -32000'); // 32MB cache
+        db.pragma('cache_size = -64000'); // 64MB cache - increased for hot pages
         db.pragma('synchronous = OFF'); // Fastest, safe for readonly
         db.pragma('temp_store = MEMORY');
         // Don't set journal_mode - it's already set by writer and requires write access
     } else {
-        // Writer: optimize for fast writes while preventing corruption
-        db.pragma('mmap_size = 53687091200'); // 50GB - map entire database
-        db.pragma('cache_size = -64000'); // 64MB cache
-        db.pragma('synchronous = NORMAL'); // Fast but prevents corruption
-        db.pragma('journal_mode = WAL'); // Only writer sets this
+        // Writer: Optimized for random writes
+        db.pragma('mmap_size = 0'); // Disable mmap for writes
+        db.pragma('cache_size = -512000'); // 512MB cache - use the RAM for SQLite's cache instead
+        db.pragma('synchronous = OFF'); // No fsync - fast but not durable
+        db.pragma('journal_mode = WAL'); // Keep WAL for atomicity
+        db.pragma('wal_autocheckpoint = 10000'); // Checkpoint less frequently
         db.pragma('temp_store = MEMORY');
-        // db.pragma('locking_mode = EXCLUSIVE'); // Single writer optimization
+        db.pragma('locking_mode = EXCLUSIVE'); // Single writer optimization
     }
 }

@@ -1,0 +1,262 @@
+[dotenv@17.0.0] injecting env (10) from .env – 🔐 encrypt with dotenvx: https://dotenvx.com
+storedHasDebug 1 hasDebug true
+storedHasDebug 0 hasDebug false
+Loading test data...
+Queryies took 44.024215ms
+getBlocks(0, max 1000 txs): got 1000 txs in 1083 blocks, total=70ms
+Queryies took 32.35140800000005ms
+getBlocks(1082, max 1000 txs): got 1000 txs in 1018 blocks, total=47ms
+Queryies took 26.286336999999946ms
+getBlocks(2099, max 1000 txs): got 1000 txs in 1000 blocks, total=40ms
+Queryies took 30.404314999999997ms
+getBlocks(3098, max 1000 txs): got 1000 txs in 1002 blocks, total=43ms
+Queryies took 28.33838800000001ms
+getBlocks(4099, max 1000 txs): got 1000 txs in 1013 blocks, total=41ms
+Queryies took 27.020506999999952ms
+getBlocks(5111, max 1000 txs): got 1000 txs in 1004 blocks, total=39ms
+Queryies took 28.01751200000001ms
+getBlocks(6114, max 1000 txs): got 1000 txs in 1004 blocks, total=268ms
+Queryies took 22.258317000000034ms
+getBlocks(7117, max 1000 txs): got 1000 txs in 1002 blocks, total=34ms
+Queryies took 22.810737000000017ms
+getBlocks(8118, max 1000 txs): got 1000 txs in 1011 blocks, total=39ms
+Queryies took 23.362405999999964ms
+getBlocks(9128, max 1000 txs): got 1000 txs in 1004 blocks, total=37ms
+Queryies took 24.129118000000062ms
+getBlocks(10131, max 1000 txs): got 1000 txs in 1010 blocks, total=38ms
+Queryies took 27.03671499999996ms
+getBlocks(11140, max 1000 txs): got 1000 txs in 1000 blocks, total=41ms
+Queryies took 28.27193000000011ms
+getBlocks(12139, max 1000 txs): got 1000 txs in 1000 blocks, total=43ms
+Queryies took 29.291018000000122ms
+getBlocks(13138, max 1000 txs): got 1000 txs in 1004 blocks, total=409ms
+Queryies took 25.524207999999817ms
+getBlocks(14141, max 1000 txs): got 1000 txs in 1000 blocks, total=39ms
+Queryies took 28.7501400000001ms
+getBlocks(15140, max 1000 txs): got 1000 txs in 1006 blocks, total=44ms
+Queryies took 37.33497400000033ms
+getBlocks(16145, max 1000 txs): got 1000 txs in 1000 blocks, total=52ms
+Queryies took 26.22367000000031ms
+getBlocks(17144, max 1000 txs): got 1000 txs in 1000 blocks, total=40ms
+Queryies took 25.616250000000036ms
+getBlocks(18143, max 1000 txs): got 1000 txs in 1000 blocks, total=43ms
+Queryies took 29.502394000000095ms
+getBlocks(19142, max 1000 txs): got 1000 txs in 1000 blocks, total=51ms
+Loading training data from other chain...
+Queryies took 758.118203ms
+getBlocks(0, max 1000 txs): got 1000 txs in 1001 blocks, total=781ms
+Queryies took 58.691621000000396ms
+getBlocks(1000, max 1000 txs): got 1000 txs in 1000 blocks, total=83ms
+Queryies took 828.1813790000001ms
+getBlocks(1999, max 1000 txs): got 1000 txs in 999 blocks, total=916ms
+Queryies took 60.97867200000019ms
+getBlocks(2997, max 1000 txs): got 1000 txs in 1000 blocks, total=260ms
+Queryies took 863.1830920000002ms
+getBlocks(3996, max 1000 txs): got 1000 txs in 999 blocks, total=934ms
+Queryies took 52.47767300000032ms
+getBlocks(4994, max 1000 txs): got 1000 txs in 999 blocks, total=1025ms
+Queryies took 53.86455500000011ms
+getBlocks(5992, max 1000 txs): got 1000 txs in 1000 blocks, total=123ms
+Queryies took 1121.0356849999998ms
+getBlocks(6991, max 1000 txs): got 1000 txs in 996 blocks, total=1225ms
+Queryies took 53.56709499999852ms
+getBlocks(7986, max 1000 txs): got 1000 txs in 998 blocks, total=772ms
+Queryies took 55.54777099999956ms
+getBlocks(8983, max 1000 txs): got 1000 txs in 1000 blocks, total=146ms
+Queryies took 1283.3168530000003ms
+getBlocks(9982, max 1000 txs): got 1000 txs in 996 blocks, total=1385ms
+Got 20161 blocks and 20000 receipts from C-Chain in 11202ms
+Got 10988 blocks and 11000 receipts from e2e_zerooneMainnet for training
+
+=== Benchmarking blocks (20161 items) ===
+Training dictionary: no dict...
+  no dict: 18.29MB, 0.93KB avg, 2.5x compression
+Training dictionary: 8KB...
+  8KB: 12.24MB, 0.62KB avg, 3.8x compression
+Training dictionary: 16KB...
+  16KB: 11.04MB, 0.56KB avg, 4.2x compression
+Training dictionary: 32KB...
+  32KB: 10.70MB, 0.54KB avg, 4.4x compression
+Training dictionary: 64KB...
+  64KB: 9.03MB, 0.46KB avg, 5.2x compression
+Training dictionary: 128KB...
+  128KB: 8.76MB, 0.44KB avg, 5.3x compression
+Training dictionary: 256KB...
+  256KB: 8.72MB, 0.44KB avg, 5.3x compression
+Training dictionary: 512KB...
+  512KB: 8.52MB, 0.43KB avg, 5.5x compression
+Training dictionary: 1MB...
+  1MB: 8.52MB, 0.43KB avg, 5.5x compression
+
+=== Benchmarking receipts (20000 items) ===
+Training dictionary: no dict...
+  no dict: 9.58MB, 0.49KB avg, 3.2x compression
+Training dictionary: 8KB...
+  8KB: 5.79MB, 0.30KB avg, 5.2x compression
+Training dictionary: 16KB...
+  16KB: 4.93MB, 0.25KB avg, 6.2x compression
+Training dictionary: 32KB...
+  32KB: 4.92MB, 0.25KB avg, 6.2x compression
+Training dictionary: 64KB...
+  64KB: 2.97MB, 0.15KB avg, 10.2x compression
+Training dictionary: 128KB...
+  128KB: 3.04MB, 0.16KB avg, 10.0x compression
+Training dictionary: 256KB...
+  256KB: 3.11MB, 0.16KB avg, 9.8x compression
+Training dictionary: 512KB...
+  512KB: 2.89MB, 0.15KB avg, 10.5x compression
+Training dictionary: 1MB...
+  1MB: 2.91MB, 0.15KB avg, 10.4x compression
+
+=== Cross-Chain Benchmarking blocks ===
+Training on e2e_zerooneMainnet (10988 items), testing on C-Chain (20161 items)
+Training cross-chain dictionary: no dict...
+  no dict: 18.29MB, 0.93KB avg, 2.5x compression
+Training cross-chain dictionary: 8KB...
+  8KB: 12.15MB, 0.62KB avg, 3.8x compression
+Training cross-chain dictionary: 16KB...
+  16KB: 12.12MB, 0.62KB avg, 3.8x compression
+Training cross-chain dictionary: 32KB...
+  32KB: 12.09MB, 0.61KB avg, 3.9x compression
+Training cross-chain dictionary: 64KB...
+  64KB: 11.61MB, 0.59KB avg, 4.0x compression
+Training cross-chain dictionary: 128KB...
+  128KB: 12.39MB, 0.63KB avg, 3.8x compression
+Training cross-chain dictionary: 256KB...
+  256KB: 12.14MB, 0.62KB avg, 3.8x compression
+Training cross-chain dictionary: 512KB...
+  512KB: 12.04MB, 0.61KB avg, 3.9x compression
+Training cross-chain dictionary: 1MB...
+  1MB: 12.09MB, 0.61KB avg, 3.8x compression
+
+=== Cross-Chain Benchmarking receipts ===
+Training on e2e_zerooneMainnet (11000 items), testing on C-Chain (20000 items)
+Training cross-chain dictionary: no dict...
+  no dict: 9.58MB, 0.49KB avg, 3.2x compression
+Training cross-chain dictionary: 8KB...
+  8KB: 5.87MB, 0.30KB avg, 5.2x compression
+Training cross-chain dictionary: 16KB...
+  16KB: 5.87MB, 0.30KB avg, 5.2x compression
+Training cross-chain dictionary: 32KB...
+  32KB: 5.93MB, 0.30KB avg, 5.1x compression
+Training cross-chain dictionary: 64KB...
+  64KB: 5.84MB, 0.30KB avg, 5.2x compression
+Training cross-chain dictionary: 128KB...
+  128KB: 5.56MB, 0.28KB avg, 5.5x compression
+Training cross-chain dictionary: 256KB...
+  256KB: 5.28MB, 0.27KB avg, 5.7x compression
+Training cross-chain dictionary: 512KB...
+  512KB: 5.16MB, 0.26KB avg, 5.9x compression
+Training cross-chain dictionary: 1MB...
+  1MB: 5.71MB, 0.29KB avg, 5.3x compression
+
+--- BLOCKS Results ---
+                              BLOCKS Dictionary Size Comparison                              
+┌───────────┬─────────────┬────────────┬──────────┬─────────────┬─────────────┬─────────────┐
+│ Dict Size │ Actual (KB) │ Total (MB) │ Avg (KB) │ Compression │ Encode (ms) │ Decode (ms) │
+├───────────┼─────────────┼────────────┼──────────┼─────────────┼─────────────┼─────────────┤
+│ no dict   │         0.0 │      18.29 │     0.93 │        2.5x │     1348.95 │      187.89 │
+│ 8KB       │         8.0 │      12.24 │     0.62 │        3.8x │      853.14 │      170.54 │
+│ 16KB      │        16.0 │      11.04 │     0.56 │        4.2x │     1145.41 │      123.34 │
+│ 32KB      │        32.0 │      10.70 │     0.54 │        4.4x │      768.49 │      132.90 │
+│ 64KB      │        64.0 │       9.03 │     0.46 │        5.2x │     1173.55 │      142.17 │
+│ 128KB     │       128.0 │       8.76 │     0.44 │        5.3x │      938.80 │      150.81 │
+│ 256KB     │       256.0 │       8.72 │     0.44 │        5.3x │      174.40 │      725.48 │
+│ 512KB     │       512.0 │       8.52 │     0.43 │        5.5x │      166.52 │      925.20 │
+│ 1MB       │      1024.0 │       8.52 │     0.43 │        5.5x │      169.17 │      671.39 │
+└───────────┴─────────────┴────────────┴──────────┴─────────────┴─────────────┴─────────────┘
+
+--- RECEIPTS Results ---
+                             RECEIPTS Dictionary Size Comparison                             
+┌───────────┬─────────────┬────────────┬──────────┬─────────────┬─────────────┬─────────────┐
+│ Dict Size │ Actual (KB) │ Total (MB) │ Avg (KB) │ Compression │ Encode (ms) │ Decode (ms) │
+├───────────┼─────────────┼────────────┼──────────┼─────────────┼─────────────┼─────────────┤
+│ no dict   │         0.0 │       9.58 │     0.49 │        3.2x │      148.70 │       95.00 │
+│ 8KB       │         8.0 │       5.79 │     0.30 │        5.2x │      880.47 │       82.74 │
+│ 16KB      │        16.0 │       4.93 │     0.25 │        6.2x │      115.87 │       76.75 │
+│ 32KB      │        32.0 │       4.92 │     0.25 │        6.2x │      570.45 │       76.99 │
+│ 64KB      │        64.0 │       2.97 │     0.15 │       10.2x │      102.51 │      578.23 │
+│ 128KB     │       128.0 │       3.04 │     0.16 │       10.0x │      104.78 │       66.69 │
+│ 256KB     │       256.0 │       3.11 │     0.16 │        9.8x │     1017.19 │       84.65 │
+│ 512KB     │       512.0 │       2.89 │     0.15 │       10.5x │      103.31 │       67.77 │
+│ 1MB       │      1024.0 │       2.91 │     0.15 │       10.4x │      517.66 │       74.05 │
+└───────────┴─────────────┴────────────┴──────────┴─────────────┴─────────────┴─────────────┘
+
+--- CROSS-CHAIN BLOCKS Results ---
+                        CROSS-CHAIN BLOCKS Dictionary Size Comparison                        
+┌───────────┬─────────────┬────────────┬──────────┬─────────────┬─────────────┬─────────────┐
+│ Dict Size │ Actual (KB) │ Total (MB) │ Avg (KB) │ Compression │ Encode (ms) │ Decode (ms) │
+├───────────┼─────────────┼────────────┼──────────┼─────────────┼─────────────┼─────────────┤
+│ no dict   │         0.0 │      18.29 │     0.93 │        2.5x │      704.24 │      145.66 │
+│ 8KB       │         8.0 │      12.15 │     0.62 │        3.8x │      695.05 │      133.72 │
+│ 16KB      │        16.0 │      12.12 │     0.62 │        3.8x │      667.14 │      125.13 │
+│ 32KB      │        32.0 │      12.09 │     0.61 │        3.9x │      684.99 │      130.93 │
+│ 64KB      │        64.0 │      11.61 │     0.59 │        4.0x │      885.08 │      123.33 │
+│ 128KB     │       128.0 │      12.39 │     0.63 │        3.8x │      674.85 │      125.15 │
+│ 256KB     │       256.0 │      12.14 │     0.62 │        3.8x │      809.66 │      125.07 │
+│ 512KB     │       512.0 │      12.04 │     0.61 │        3.9x │      784.82 │      127.59 │
+│ 1MB       │      1024.0 │      12.09 │     0.61 │        3.8x │      852.96 │      125.72 │
+└───────────┴─────────────┴────────────┴──────────┴─────────────┴─────────────┴─────────────┘
+
+--- CROSS-CHAIN RECEIPTS Results ---
+                       CROSS-CHAIN RECEIPTS Dictionary Size Comparison                       
+┌───────────┬─────────────┬────────────┬──────────┬─────────────┬─────────────┬─────────────┐
+│ Dict Size │ Actual (KB) │ Total (MB) │ Avg (KB) │ Compression │ Encode (ms) │ Decode (ms) │
+├───────────┼─────────────┼────────────┼──────────┼─────────────┼─────────────┼─────────────┤
+│ no dict   │         0.0 │       9.58 │     0.49 │        3.2x │      148.94 │       87.37 │
+│ 8KB       │         8.0 │       5.87 │     0.30 │        5.2x │      482.79 │       86.78 │
+│ 16KB      │        16.0 │       5.87 │     0.30 │        5.2x │      513.62 │       94.02 │
+│ 32KB      │        32.0 │       5.93 │     0.30 │        5.1x │      120.26 │       84.35 │
+│ 64KB      │        64.0 │       5.84 │     0.30 │        5.2x │      827.69 │       80.38 │
+│ 128KB     │       128.0 │       5.56 │     0.28 │        5.5x │      117.81 │       79.04 │
+│ 256KB     │       256.0 │       5.28 │     0.27 │        5.7x │      114.48 │       77.40 │
+│ 512KB     │       512.0 │       5.16 │     0.26 │        5.9x │      472.78 │      220.08 │
+│ 1MB       │       120.7 │       5.71 │     0.29 │        5.3x │      122.69 │       82.99 │
+└───────────┴─────────────┴────────────┴──────────┴─────────────┴─────────────┴─────────────┘
+
+=== SUMMARY: Dictionary Size Impact ===
+
+BLOCKS - Best compression vs performance trade-offs:
+  8KB     : 33.1% smaller, -9.2% slower decode
+  16KB    : 39.7% smaller, -34.4% slower decode
+  32KB    : 41.5% smaller, -29.3% slower decode
+  64KB    : 50.6% smaller, -24.3% slower decode
+  128KB   : 52.1% smaller, -19.7% slower decode
+  256KB   : 52.4% smaller, 286.1% slower decode
+  512KB   : 53.4% smaller, 392.4% slower decode
+  1MB     : 53.5% smaller, 257.3% slower decode
+
+RECEIPTS - Best compression vs performance trade-offs:
+  8KB     : 39.5% smaller, -12.9% slower decode
+  16KB    : 48.5% smaller, -19.2% slower decode
+  32KB    : 48.7% smaller, -19.0% slower decode
+  64KB    : 69.0% smaller, 508.7% slower decode
+  128KB   : 68.3% smaller, -29.8% slower decode
+  256KB   : 67.5% smaller, -10.9% slower decode
+  512KB   : 69.8% smaller, -28.7% slower decode
+  1MB     : 69.6% smaller, -22.1% slower decode
+
+=== CROSS-CHAIN DICTIONARY EFFECTIVENESS ===
+Comparing same-chain vs cross-chain dictionary performance:
+
+BLOCKS:
+  8KB     : Same-chain 3.80x, Cross-chain 3.83x (+0.8%)
+  16KB    : Same-chain 4.22x, Cross-chain 3.84x (-8.9%)
+  32KB    : Same-chain 4.35x, Cross-chain 3.85x (-11.5%)
+  64KB    : Same-chain 5.16x, Cross-chain 4.01x (-22.3%)
+  128KB   : Same-chain 5.31x, Cross-chain 3.76x (-29.3%)
+  256KB   : Same-chain 5.34x, Cross-chain 3.84x (-28.2%)
+  512KB   : Same-chain 5.47x, Cross-chain 3.87x (-29.3%)
+  1MB     : Same-chain 5.47x, Cross-chain 3.85x (-29.6%)
+
+RECEIPTS:
+  8KB     : Same-chain 5.24x, Cross-chain 5.17x (-1.3%)
+  16KB    : Same-chain 6.16x, Cross-chain 5.17x (-16.1%)
+  32KB    : Same-chain 6.17x, Cross-chain 5.12x (-17.1%)
+  64KB    : Same-chain 10.21x, Cross-chain 5.20x (-49.1%)
+  128KB   : Same-chain 9.99x, Cross-chain 5.46x (-45.3%)
+  256KB   : Same-chain 9.75x, Cross-chain 5.75x (-41.0%)
+  512KB   : Same-chain 10.49x, Cross-chain 5.89x (-43.9%)
+  1MB     : Same-chain 10.44x, Cross-chain 5.32x (-49.1%)
+
+=== Dictionary Size Benchmark Complete ===

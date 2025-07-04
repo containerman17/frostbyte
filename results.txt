@@ -1,33 +1,16 @@
 [dotenv@17.0.0] injecting env (10) from .env – 🔐 encrypt with dotenvx: https://dotenvx.com
 storedHasDebug 1 hasDebug true
-getBlocks(0, max 1000 txs): got 999 txs in 1000 blocks, total=2191ms, query=2163ms, decode=27ms
-getBlocks(999, max 1000 txs): got 1000 txs in 1000 blocks, total=191ms, query=167ms, decode=20ms
-getBlocks(1998, max 1000 txs): got 1000 txs in 999 blocks, total=282ms, query=198ms, decode=83ms
-getBlocks(2996, max 1000 txs): got 1000 txs in 1000 blocks, total=331ms, query=227ms, decode=104ms
-getBlocks(3995, max 1000 txs): got 1000 txs in 999 blocks, total=294ms, query=203ms, decode=91ms
-getBlocks(4993, max 1000 txs): got 1000 txs in 999 blocks, total=297ms, query=204ms, decode=93ms
-getBlocks(5991, max 1000 txs): got 1000 txs in 1000 blocks, total=289ms, query=192ms, decode=97ms
-getBlocks(6990, max 1000 txs): got 1000 txs in 996 blocks, total=279ms, query=190ms, decode=89ms
-getBlocks(7985, max 1000 txs): got 1000 txs in 998 blocks, total=1020ms, query=187ms, decode=833ms
-getBlocks(8982, max 1000 txs): got 1000 txs in 1000 blocks, total=275ms, query=184ms, decode=91ms
-getBlocks(9981, max 1000 txs): got 1000 txs in 996 blocks, total=278ms, query=184ms, decode=94ms
-getBlocks(10976, max 1000 txs): got 1000 txs in 999 blocks, total=280ms, query=176ms, decode=104ms
-getBlocks(11974, max 1000 txs): got 1000 txs in 999 blocks, total=1034ms, query=879ms, decode=154ms
-getBlocks(12972, max 1000 txs): got 1000 txs in 999 blocks, total=300ms, query=196ms, decode=104ms
-getBlocks(13970, max 1000 txs): got 1000 txs in 1000 blocks, total=281ms, query=178ms, decode=103ms
-getBlocks(14969, max 1000 txs): got 1000 txs in 999 blocks, total=289ms, query=174ms, decode=115ms
-getBlocks(15967, max 1000 txs): got 1000 txs in 1000 blocks, total=1767ms, query=170ms, decode=1596ms
-getBlocks(16966, max 1000 txs): got 1000 txs in 998 blocks, total=280ms, query=173ms, decode=107ms
-getBlocks(17963, max 1000 txs): got 1000 txs in 1000 blocks, total=313ms, query=177ms, decode=135ms
-getBlocks(18962, max 1000 txs): got 1000 txs in 997 blocks, total=302ms, query=174ms, decode=128ms
-getBlocks(19958, max 1000 txs): got 1000 txs in 999 blocks, total=297ms, query=170ms, decode=126ms
-Got 20977 blocks and 20999 receipts in 14481ms. Starting benchmark...
+getBlocks(0, max 1000 txs): got 999 txs in 1000 blocks, total=3226ms, query=3197ms, decode=28ms
+getBlocks(999, max 1000 txs): got 1000 txs in 1000 blocks, total=450ms, query=438ms, decode=12ms
+getBlocks(1998, max 1000 txs): got 1000 txs in 999 blocks, total=194ms, query=129ms, decode=64ms
+getBlocks(2996, max 1000 txs): got 1000 txs in 1000 blocks, total=192ms, query=129ms, decode=62ms
+Got 3999 blocks and 3999 receipts in 4514ms. Starting benchmark...
 
 === Training LZ4 Dictionaries ===
-Dictionary training completed in 3964ms
+Dictionary training completed in 1172ms
   Target samples per dictionary: 1280
-  Actual block samples: 1280
-  Actual receipt samples: 1280
+  Actual block samples: 399
+  Actual receipt samples: 399
   JSON block dict: 64.0 KB
   JSON receipt dict: 64.0 KB
   Msgpack block dict: 64.0 KB
@@ -45,222 +28,153 @@ Dictionary training completed in 3964ms
 (Simulating database row storage)
 
 
---- Testing blocks (20977 items) ---
-
-JSON plain:
-  Total size:     94.31 MB
-  Avg size/item:  4.60 KB
-  Encode time:    2512.48ms (119.77μs per item)
-  Decode time:    131.39ms (6.26μs per item)
-
-JSON + lz4:
-  Total size:     40.61 MB
-  Avg size/item:  1.98 KB
-  Encode time:    1144.74ms (54.57μs per item)
-  Decode time:    238.30ms (11.36μs per item)
-
-JSON + lz4+dict:
-  Total size:     30.20 MB
-  Avg size/item:  1.47 KB
-  Encode time:    707.17ms (33.71μs per item)
-  Decode time:    289.45ms (13.80μs per item)
-
-JSON + zstd:
-  Total size:     26.32 MB
-  Avg size/item:  1.28 KB
-  Encode time:    4798.54ms (228.75μs per item)
-  Decode time:    1072.06ms (51.11μs per item)
-
-JSON + zstdNapi+dict:
-  Total size:     17.03 MB
-  Avg size/item:  0.83 KB
-  Encode time:    558.50ms (26.62μs per item)
-  Decode time:    265.60ms (12.66μs per item)
-
-msgpackr plain:
-  Total size:     91.48 MB
-  Avg size/item:  4.47 KB
-  Encode time:    710.96ms (33.89μs per item)
-  Decode time:    197.71ms (9.42μs per item)
-
-msgpackr + lz4:
-  Total size:     40.32 MB
-  Avg size/item:  1.97 KB
-  Encode time:    1201.97ms (57.30μs per item)
-  Decode time:    239.13ms (11.40μs per item)
-
-msgpackr + lz4+dict:
-  Total size:     29.71 MB
-  Avg size/item:  1.45 KB
-  Encode time:    1468.47ms (70.00μs per item)
-  Decode time:    223.62ms (10.66μs per item)
-
-msgpackr + zstd:
-  Total size:     26.92 MB
-  Avg size/item:  1.31 KB
-  Encode time:    6163.46ms (293.82μs per item)
-  Decode time:    1839.15ms (87.67μs per item)
-
-msgpackr + zstdNapi+dict:
-  Total size:     16.97 MB
-  Avg size/item:  0.83 KB
-  Encode time:    486.82ms (23.21μs per item)
-  Decode time:    303.98ms (14.49μs per item)
-
-compactMsgpackr plain:
-  Total size:     49.56 MB
-  Avg size/item:  2.42 KB
-  Encode time:    2569.28ms (122.48μs per item)
-  Decode time:    449.02ms (21.41μs per item)
-
-compactMsgpackr + lz4:
-  Total size:     27.04 MB
-  Avg size/item:  1.32 KB
-  Encode time:    746.40ms (35.58μs per item)
-  Decode time:    392.75ms (18.72μs per item)
-
-compactMsgpackr + lz4+dict:
-  Total size:     18.65 MB
-  Avg size/item:  0.91 KB
-  Encode time:    991.11ms (47.25μs per item)
-  Decode time:    410.95ms (19.59μs per item)
-
-compactMsgpackr + zstd:
-  Total size:     24.74 MB
-  Avg size/item:  1.21 KB
-  Encode time:    6463.07ms (308.10μs per item)
-  Decode time:    630.83ms (30.07μs per item)
-
-compactMsgpackr + zstdNapi+dict:
-  Total size:     16.05 MB
-  Avg size/item:  0.78 KB
-  Encode time:    1665.33ms (79.39μs per item)
-  Decode time:    391.76ms (18.68μs per item)
+--- Testing blocks (3999 items) ---
+                                     BLOCKS Benchmark Results (3999 items)                                      
+┌──────────────────────────────────┬─────────────────┬───────────────┬─────────────┬─────────────┬─────────────┐
+│ Method                           │ Total Size (MB) │ Avg Size (KB) │ Compression │ Encode (ms) │ Decode (ms) │
+├──────────────────────────────────┼─────────────────┼───────────────┼─────────────┼─────────────┼─────────────┤
+│ JSON plain                       │           14.04 │          3.60 │        1.0x │       31.52 │       13.94 │
+│ msgpackr plain                   │           13.50 │          3.46 │        1.0x │       16.84 │       24.58 │
+│ JSON + lz4                       │            6.57 │          1.68 │        2.1x │       46.40 │       26.28 │
+│ JSON + lz4+dict                  │            4.48 │          1.15 │        3.1x │       86.45 │       26.40 │
+│ msgpackr + lz4+dict              │            4.43 │          1.13 │        3.2x │       75.40 │       26.73 │
+│ JSON + zstdNapi+dict             │            2.51 │          0.64 │        5.6x │       65.63 │       29.33 │
+│ msgpackr + zstdNapi+dict         │            2.49 │          0.64 │        5.6x │       50.76 │       30.54 │
+│ msgpackr + lz4                   │            6.52 │          1.67 │        2.2x │      139.36 │       30.93 │
+│ ultraCompact plain               │            8.06 │          2.06 │        1.7x │      141.44 │       34.11 │
+│ JSON + zstdNapi                  │            4.36 │          1.12 │        3.2x │       76.19 │       36.77 │
+│ ultraCompact + lz4               │            4.83 │          1.24 │        2.9x │       53.56 │       37.06 │
+│ ultraCompact + zstdNapi+dict     │            3.33 │          0.85 │        4.2x │       65.07 │       37.41 │
+│ msgpackr + zstdNapi              │            4.47 │          1.14 │        3.1x │       63.76 │       37.58 │
+│ ultraCompact + lz4+dict          │            3.62 │          0.93 │        3.9x │       94.22 │       39.17 │
+│ optimizedCompact + zstdNapi+dict │            2.68 │          0.69 │        5.2x │       77.37 │       39.24 │
+│ optimizedCompact plain           │            7.87 │          2.02 │        1.8x │       66.08 │       40.01 │
+│ ultraCompact + zstdNapi          │            4.49 │          1.15 │        3.1x │       83.93 │       40.05 │
+│ optimizedCompact + lz4+dict      │            3.09 │          0.79 │        4.5x │      110.38 │       41.64 │
+│ optimizedCompact + zstdNapi      │            4.35 │          1.11 │        3.2x │       97.07 │       43.17 │
+│ optimizedCompact + lz4           │            4.69 │          1.20 │        3.0x │      173.44 │       43.26 │
+│ compactMsgpackr + zstdNapi+dict  │            2.25 │          0.58 │        6.2x │       98.44 │       48.62 │
+│ compactMsgpackr + lz4+dict       │            2.69 │          0.69 │        5.2x │      134.90 │       48.91 │
+│ compactMsgpackr + zstdNapi       │            4.06 │          1.04 │        3.5x │      117.91 │       50.10 │
+│ compactMsgpackr plain            │            7.47 │          1.91 │        1.9x │       83.96 │       50.39 │
+│ compactMsgpackr + lz4            │            4.37 │          1.12 │        3.2x │       91.79 │       51.08 │
+│ optimizedCompact + zstd          │            4.35 │          1.11 │        3.2x │      169.55 │       58.59 │
+│ msgpackr + zstd                  │            4.47 │          1.14 │        3.1x │      154.39 │       60.33 │
+│ ultraCompact + zstd              │            4.50 │          1.15 │        3.1x │      165.66 │       65.44 │
+│ JSON + zstd                      │            4.36 │          1.12 │        3.2x │      301.19 │      132.26 │
+│ compactMsgpackr + zstd           │            4.06 │          1.04 │        3.5x │      207.06 │      154.75 │
+└──────────────────────────────────┴─────────────────┴───────────────┴─────────────┴─────────────┴─────────────┘
 
 📊 Size & Decode Time Comparison (vs JSON plain):
-  JSON plain           - Baseline: 439.0GB, 13.9min
-  JSON + lz4           - 0.43x size 1.98x time: 189.1GB, 22.1min (56.9% smaller)
-  JSON + lz4+dict      - 0.32x size 1.59x time: 140.6GB, 17.7min (68.0% smaller)
-  JSON + zstd          - 0.28x size 3.62x time: 122.5GB, 40.3min (72.1% smaller)
-  JSON + zstdNapi+dict - 0.18x size 1.83x time: 79.3GB, 20.4min (81.9% smaller)
-  msgpackr plain       - 0.97x size 1.43x time: 425.9GB, 16.0min (3.0% smaller)
-  msgpackr + lz4       - 0.43x size 1.53x time: 187.7GB, 17.0min (57.3% smaller)
-  msgpackr + lz4+dict  - 0.32x size 1.61x time: 138.3GB, 17.9min (68.5% smaller)
-  msgpackr + zstd      - 0.29x size 3.69x time: 125.3GB, 41.1min (71.5% smaller)
-  msgpackr + zstdNapi+dict - 0.18x size 1.95x time: 79.0GB, 21.8min (82.0% smaller)
-  compactMsgpackr plain - 0.53x size 2.52x time: 230.7GB, 28.1min (47.5% smaller)
-  compactMsgpackr + lz4 - 0.29x size 3.01x time: 125.9GB, 33.6min (71.3% smaller)
-  compactMsgpackr + lz4+dict - 0.20x size 3.50x time: 86.8GB, 39.0min (80.2% smaller)
-  compactMsgpackr + zstd - 0.26x size 3.95x time: 115.2GB, 44.1min (73.8% smaller)
-  compactMsgpackr + zstdNapi+dict - 0.17x size 2.77x time: 74.7GB, 30.9min (83.0% smaller)
+                      BLOCKS Comparison vs JSON Plain (extrapolated to 100M items)                      
+┌──────────────────────────────────┬────────────┬────────────┬───────────┬────────────┬────────────────┐
+│ Method                           │ Size Ratio │ Time Ratio │ Size (GB) │ Time (min) │ Size Reduction │
+├──────────────────────────────────┼────────────┼────────────┼───────────┼────────────┼────────────────┤
+│ JSON plain                       │      1.00x │      1.00x │     342.9 │        5.8 │       baseline │
+│ msgpackr plain                   │      0.96x │      1.76x │     329.7 │       10.2 │           3.8% │
+│ JSON + lz4                       │      0.47x │      1.89x │     160.5 │       11.0 │          53.2% │
+│ JSON + lz4+dict                  │      0.32x │      1.89x │     109.3 │       11.0 │          68.1% │
+│ msgpackr + lz4+dict              │      0.32x │      1.92x │     108.1 │       11.1 │          68.5% │
+│ JSON + zstdNapi+dict             │      0.18x │      2.10x │      61.2 │       12.2 │          82.1% │
+│ msgpackr + zstdNapi+dict         │      0.18x │      2.19x │      60.7 │       12.7 │          82.3% │
+│ msgpackr + lz4                   │      0.46x │      2.22x │     159.3 │       12.9 │          53.5% │
+│ ultraCompact plain               │      0.57x │      2.45x │     196.8 │       14.2 │          42.6% │
+│ JSON + zstdNapi                  │      0.31x │      2.64x │     106.5 │       15.3 │          68.9% │
+│ ultraCompact + lz4               │      0.34x │      2.66x │     117.9 │       15.4 │          65.6% │
+│ ultraCompact + zstdNapi+dict     │      0.24x │      2.68x │      81.2 │       15.6 │          76.3% │
+│ msgpackr + zstdNapi              │      0.32x │      2.70x │     109.1 │       15.7 │          68.2% │
+│ ultraCompact + lz4+dict          │      0.26x │      2.81x │      88.5 │       16.3 │          74.2% │
+│ optimizedCompact + zstdNapi+dict │      0.19x │      2.81x │      65.4 │       16.4 │          80.9% │
+│ optimizedCompact plain           │      0.56x │      2.87x │     192.2 │       16.7 │          43.9% │
+│ ultraCompact + zstdNapi          │      0.32x │      2.87x │     109.7 │       16.7 │          68.0% │
+│ optimizedCompact + lz4+dict      │      0.22x │      2.99x │      75.5 │       17.4 │          78.0% │
+│ optimizedCompact + zstdNapi      │      0.31x │      3.10x │     106.2 │       18.0 │          69.0% │
+│ optimizedCompact + lz4           │      0.33x │      3.10x │     114.5 │       18.0 │          66.6% │
+│ compactMsgpackr + zstdNapi+dict  │      0.16x │      3.49x │      55.0 │       20.3 │          84.0% │
+│ compactMsgpackr + lz4+dict       │      0.19x │      3.51x │      65.6 │       20.4 │          80.9% │
+│ compactMsgpackr + zstdNapi       │      0.29x │      3.59x │      99.1 │       20.9 │          71.1% │
+│ compactMsgpackr plain            │      0.53x │      3.61x │     182.5 │       21.0 │          46.8% │
+│ compactMsgpackr + lz4            │      0.31x │      3.66x │     106.7 │       21.3 │          68.9% │
+│ optimizedCompact + zstd          │      0.31x │      4.20x │     106.1 │       24.4 │          69.0% │
+│ msgpackr + zstd                  │      0.32x │      4.33x │     109.1 │       25.1 │          68.2% │
+│ ultraCompact + zstd              │      0.32x │      4.69x │     109.8 │       27.3 │          68.0% │
+│ JSON + zstd                      │      0.31x │      9.48x │     106.5 │       55.1 │          68.9% │
+│ compactMsgpackr + zstd           │      0.29x │     11.10x │      99.1 │       64.5 │          71.1% │
+└──────────────────────────────────┴────────────┴────────────┴───────────┴────────────┴────────────────┘
 
---- Testing receipts (20999 items) ---
-
-JSON plain:
-  Total size:     98.21 MB
-  Avg size/item:  4.79 KB
-  Encode time:    1132.02ms (53.91μs per item)
-  Decode time:    154.58ms (7.36μs per item)
-
-JSON + lz4:
-  Total size:     31.49 MB
-  Avg size/item:  1.54 KB
-  Encode time:    458.82ms (21.85μs per item)
-  Decode time:    196.64ms (9.36μs per item)
-
-JSON + lz4+dict:
-  Total size:     24.47 MB
-  Avg size/item:  1.19 KB
-  Encode time:    779.92ms (37.14μs per item)
-  Decode time:    248.11ms (11.82μs per item)
-
-JSON + zstd:
-  Total size:     20.06 MB
-  Avg size/item:  0.98 KB
-  Encode time:    1620.32ms (77.16μs per item)
-  Decode time:    428.78ms (20.42μs per item)
-
-JSON + zstdNapi+dict:
-  Total size:     14.36 MB
-  Avg size/item:  0.70 KB
-  Encode time:    471.13ms (22.44μs per item)
-  Decode time:    270.80ms (12.90μs per item)
-
-msgpackr plain:
-  Total size:     92.54 MB
-  Avg size/item:  4.51 KB
-  Encode time:    416.11ms (19.82μs per item)
-  Decode time:    250.56ms (11.93μs per item)
-
-msgpackr + lz4:
-  Total size:     30.91 MB
-  Avg size/item:  1.51 KB
-  Encode time:    464.07ms (22.10μs per item)
-  Decode time:    246.79ms (11.75μs per item)
-
-msgpackr + lz4+dict:
-  Total size:     24.97 MB
-  Avg size/item:  1.22 KB
-  Encode time:    694.18ms (33.06μs per item)
-  Decode time:    269.95ms (12.86μs per item)
-
-msgpackr + zstd:
-  Total size:     20.09 MB
-  Avg size/item:  0.98 KB
-  Encode time:    1888.89ms (89.95μs per item)
-  Decode time:    452.28ms (21.54μs per item)
-
-msgpackr + zstdNapi+dict:
-  Total size:     14.51 MB
-  Avg size/item:  0.71 KB
-  Encode time:    640.36ms (30.49μs per item)
-  Decode time:    303.85ms (14.47μs per item)
-
-compactMsgpackr plain:
-  Total size:     54.31 MB
-  Avg size/item:  2.65 KB
-  Encode time:    1048.61ms (49.94μs per item)
-  Decode time:    373.63ms (17.79μs per item)
-
-compactMsgpackr + lz4:
-  Total size:     19.73 MB
-  Avg size/item:  0.96 KB
-  Encode time:    877.98ms (41.81μs per item)
-  Decode time:    379.11ms (18.05μs per item)
-
-compactMsgpackr + lz4+dict:
-  Total size:     15.16 MB
-  Avg size/item:  0.74 KB
-  Encode time:    1137.01ms (54.15μs per item)
-  Decode time:    389.72ms (18.56μs per item)
-
-compactMsgpackr + zstd:
-  Total size:     18.24 MB
-  Avg size/item:  0.89 KB
-  Encode time:    2030.42ms (96.69μs per item)
-  Decode time:    648.97ms (30.90μs per item)
-
-compactMsgpackr + zstdNapi+dict:
-  Total size:     13.74 MB
-  Avg size/item:  0.67 KB
-  Encode time:    1129.07ms (53.77μs per item)
-  Decode time:    437.47ms (20.83μs per item)
+--- Testing receipts (3999 items) ---
+                                    RECEIPTS Benchmark Results (3999 items)                                     
+┌──────────────────────────────────┬─────────────────┬───────────────┬─────────────┬─────────────┬─────────────┐
+│ Method                           │ Total Size (MB) │ Avg Size (KB) │ Compression │ Encode (ms) │ Decode (ms) │
+├──────────────────────────────────┼─────────────────┼───────────────┼─────────────┼─────────────┼─────────────┤
+│ JSON plain                       │           13.11 │          3.36 │        1.0x │       23.95 │       15.64 │
+│ JSON + lz4                       │            4.38 │          1.12 │        3.0x │       35.95 │       22.20 │
+│ msgpackr plain                   │           12.37 │          3.17 │        1.1x │       21.88 │       22.77 │
+│ JSON + lz4+dict                  │            3.01 │          0.77 │        4.4x │       74.58 │       22.80 │
+│ msgpackr + lz4                   │            4.27 │          1.09 │        3.1x │       65.21 │       25.61 │
+│ msgpackr + lz4+dict              │            3.07 │          0.79 │        4.3x │       76.63 │       26.64 │
+│ JSON + zstdNapi+dict             │            1.73 │          0.44 │        7.6x │       42.71 │       27.01 │
+│ msgpackr + zstdNapi+dict         │            1.74 │          0.45 │        7.5x │       41.73 │       28.61 │
+│ ultraCompact plain               │            7.40 │          1.89 │        1.8x │       54.28 │       31.71 │
+│ JSON + zstdNapi                  │            2.91 │          0.75 │        4.5x │       52.83 │       31.95 │
+│ msgpackr + zstdNapi              │            2.90 │          0.74 │        4.5x │       57.73 │       34.09 │
+│ ultraCompact + zstdNapi+dict     │            1.99 │          0.51 │        6.6x │       66.39 │       34.25 │
+│ ultraCompact + lz4+dict          │            2.17 │          0.56 │        6.0x │      103.45 │       34.39 │
+│ optimizedCompact plain           │            7.23 │          1.85 │        1.8x │       87.53 │       35.20 │
+│ ultraCompact + zstdNapi          │            2.70 │          0.69 │        4.9x │       82.06 │       35.21 │
+│ ultraCompact + lz4               │            2.96 │          0.76 │        4.4x │       79.20 │       35.37 │
+│ compactMsgpackr plain            │            7.24 │          1.85 │        1.8x │       84.11 │       36.11 │
+│ optimizedCompact + lz4+dict      │            1.85 │          0.47 │        7.1x │      118.54 │       36.69 │
+│ optimizedCompact + zstdNapi+dict │            1.63 │          0.42 │        8.1x │       81.78 │       37.05 │
+│ optimizedCompact + lz4           │            2.81 │          0.72 │        4.7x │       82.56 │       37.38 │
+│ optimizedCompact + zstdNapi      │            2.60 │          0.66 │        5.1x │       97.14 │       38.14 │
+│ compactMsgpackr + lz4+dict       │            1.86 │          0.48 │        7.1x │      135.91 │       42.54 │
+│ compactMsgpackr + zstdNapi+dict  │            1.62 │          0.41 │        8.1x │       99.03 │       42.58 │
+│ compactMsgpackr + lz4            │            2.81 │          0.72 │        4.7x │       93.24 │       42.67 │
+│ compactMsgpackr + zstdNapi       │            2.60 │          0.67 │        5.0x │      115.36 │       43.11 │
+│ ultraCompact + zstd              │            2.70 │          0.69 │        4.9x │      136.61 │       52.34 │
+│ msgpackr + zstd                  │            2.91 │          0.74 │        4.5x │      109.22 │       54.60 │
+│ compactMsgpackr + zstd           │            2.61 │          0.67 │        5.0x │      259.10 │       71.83 │
+│ optimizedCompact + zstd          │            2.61 │          0.67 │        5.0x │      132.55 │       73.02 │
+│ JSON + zstd                      │            2.91 │          0.75 │        4.5x │      145.11 │       79.65 │
+└──────────────────────────────────┴─────────────────┴───────────────┴─────────────┴─────────────┴─────────────┘
 
 📊 Size & Decode Time Comparison (vs JSON plain):
-  JSON plain           - Baseline: 456.7GB, 11.2min
-  JSON + lz4           - 0.32x size 0.61x time: 146.4GB, 15.8min (67.9% smaller)
-  JSON + lz4+dict      - 0.25x size 0.63x time: 113.8GB, 16.4min (75.1% smaller)
-  JSON + zstd          - 0.20x size 1.33x time: 93.3GB, 34.7min (79.6% smaller)
-  JSON + zstdNapi+dict - 0.15x size 0.89x time: 66.8GB, 23.0min (85.4% smaller)
-  msgpackr plain       - 0.94x size 0.99x time: 430.4GB, 25.8min (5.8% smaller)
-  msgpackr + lz4       - 0.31x size 0.76x time: 143.7GB, 19.7min (68.5% smaller)
-  msgpackr + lz4+dict  - 0.25x size 0.82x time: 116.1GB, 21.2min (74.6% smaller)
-  msgpackr + zstd      - 0.20x size 1.39x time: 93.4GB, 36.2min (79.5% smaller)
-  msgpackr + zstdNapi+dict - 0.15x size 0.89x time: 67.5GB, 23.1min (85.2% smaller)
-  compactMsgpackr plain - 0.55x size 1.11x time: 252.6GB, 28.8min (44.7% smaller)
-  compactMsgpackr + lz4 - 0.20x size 1.20x time: 91.7GB, 31.1min (79.9% smaller)
-  compactMsgpackr + lz4+dict - 0.15x size 1.21x time: 70.5GB, 31.5min (84.6% smaller)
-  compactMsgpackr + zstd - 0.19x size 1.84x time: 84.8GB, 48.0min (81.4% smaller)
-  compactMsgpackr + zstdNapi+dict - 0.14x size 1.38x time: 63.9GB, 35.8min (86.0% smaller)
+                     RECEIPTS Comparison vs JSON Plain (extrapolated to 100M items)                     
+┌──────────────────────────────────┬────────────┬────────────┬───────────┬────────────┬────────────────┐
+│ Method                           │ Size Ratio │ Time Ratio │ Size (GB) │ Time (min) │ Size Reduction │
+├──────────────────────────────────┼────────────┼────────────┼───────────┼────────────┼────────────────┤
+│ JSON plain                       │      1.00x │      1.00x │     320.2 │        6.5 │       baseline │
+│ JSON + lz4                       │      0.33x │      1.42x │     107.1 │        9.3 │          66.6% │
+│ msgpackr plain                   │      0.94x │      1.46x │     302.0 │        9.5 │           5.7% │
+│ JSON + lz4+dict                  │      0.23x │      1.46x │      73.5 │        9.5 │          77.0% │
+│ msgpackr + lz4                   │      0.33x │      1.64x │     104.4 │       10.7 │          67.4% │
+│ msgpackr + lz4+dict              │      0.23x │      1.70x │      74.9 │       11.1 │          76.6% │
+│ JSON + zstdNapi+dict             │      0.13x │      1.73x │      42.2 │       11.3 │          86.8% │
+│ msgpackr + zstdNapi+dict         │      0.13x │      1.83x │      42.4 │       11.9 │          86.7% │
+│ ultraCompact plain               │      0.56x │      2.03x │     180.7 │       13.2 │          43.6% │
+│ JSON + zstdNapi                  │      0.22x │      2.04x │      71.2 │       13.3 │          77.8% │
+│ msgpackr + zstdNapi              │      0.22x │      2.18x │      70.7 │       14.2 │          77.9% │
+│ ultraCompact + zstdNapi+dict     │      0.15x │      2.19x │      48.5 │       14.3 │          84.8% │
+│ ultraCompact + lz4+dict          │      0.17x │      2.20x │      53.0 │       14.3 │          83.4% │
+│ optimizedCompact plain           │      0.55x │      2.25x │     176.6 │       14.7 │          44.8% │
+│ ultraCompact + zstdNapi          │      0.21x │      2.25x │      65.9 │       14.7 │          79.4% │
+│ ultraCompact + lz4               │      0.23x │      2.26x │      72.2 │       14.7 │          77.4% │
+│ compactMsgpackr plain            │      0.55x │      2.31x │     176.8 │       15.1 │          44.8% │
+│ optimizedCompact + lz4+dict      │      0.14x │      2.35x │      45.2 │       15.3 │          85.9% │
+│ optimizedCompact + zstdNapi+dict │      0.12x │      2.37x │      39.7 │       15.4 │          87.6% │
+│ optimizedCompact + lz4           │      0.21x │      2.39x │      68.7 │       15.6 │          78.5% │
+│ optimizedCompact + zstdNapi      │      0.20x │      2.44x │      63.4 │       15.9 │          80.2% │
+│ compactMsgpackr + lz4+dict       │      0.14x │      2.72x │      45.3 │       17.7 │          85.8% │
+│ compactMsgpackr + zstdNapi+dict  │      0.12x │      2.72x │      39.6 │       17.7 │          87.6% │
+│ compactMsgpackr + lz4            │      0.21x │      2.73x │      68.5 │       17.8 │          78.6% │
+│ compactMsgpackr + zstdNapi       │      0.20x │      2.76x │      63.5 │       18.0 │          80.2% │
+│ ultraCompact + zstd              │      0.21x │      3.35x │      65.9 │       21.8 │          79.4% │
+│ msgpackr + zstd                  │      0.22x │      3.49x │      71.0 │       22.8 │          77.8% │
+│ compactMsgpackr + zstd           │      0.20x │      4.59x │      63.8 │       29.9 │          80.1% │
+│ optimizedCompact + zstd          │      0.20x │      4.67x │      63.7 │       30.4 │          80.1% │
+│ JSON + zstd                      │      0.22x │      5.09x │      71.2 │       33.2 │          77.8% │
+└──────────────────────────────────┴────────────┴────────────┴───────────┴────────────┴────────────────┘
 
 === Benchmark Complete ===
+ilya.solohin@ubuntu:/Users/ilya.solohin/Projects/containerman17/FrostByte$ 
