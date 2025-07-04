@@ -23,6 +23,11 @@ function findYamlFiles(dir: string): string[] {
 
     const files = fs.readdirSync(dir);
     for (const file of files) {
+        // Skip files and directories that start with _
+        if (file.startsWith('_')) {
+            continue;
+        }
+
         const fullPath = path.join(dir, file);
         const stat = fs.statSync(fullPath);
 
@@ -60,7 +65,7 @@ test('API Specs Validation', async (t) => {
     });
 
     console.log('Starting API server...');
-    const apiServer = createApiServer(blocksDbPath, indexingDbPath);
+    const apiServer = await createApiServer(blocksDbPath, indexingDbPath);
     const server = apiServer.start(3333);
 
     try {

@@ -3,13 +3,13 @@ status: 200
 glacierBody: |-
   {
     "result": {
-      "value": 29302
+      "value": 29327
     }
   }
 expectedBody: |-
   {
     "result": {
-      "value": 32261
+      "value": 32326
     }
   }
 ---
@@ -18,13 +18,13 @@ status: 200
 glacierBody: |-
   {
     "result": {
-      "value": 4170
+      "value": 4174
     }
   }
 expectedBody: |-
   {
     "result": {
-      "value": 4277
+      "value": 4298
     }
   }
 ---
@@ -33,12 +33,12 @@ status: 200
 glacierBody: |-
   {
     "result": {
-      "value": 33472
+      "value": 33501
     }
   }
 expectedBody: |-
   {
     "result": {
-      "value": 36538
+      "value": 36624
     }
   }

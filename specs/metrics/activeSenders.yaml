@@ -12,7 +12,7 @@ glacierBody: |-
         "timestamp": 1751245200
       }
     ],
-    "nextPageToken": "77e0b3ef-6c2d-448e-9b78-a86c7f153cb6"
+    "nextPageToken": "e9c31ab8-a012-4c73-8731-bdffb493713c"
   }
 expectedBody: |-
   {
@@ -43,7 +43,7 @@ glacierBody: |-
         "timestamp": 1751155200
       }
     ],
-    "nextPageToken": "4dcec954-585d-468f-96ab-1c3a389054a5"
+    "nextPageToken": "9901d0b5-d068-4d7d-9315-f2627e099dbb"
   }
 expectedBody: |-
   {
@@ -74,7 +74,7 @@ glacierBody: |-
         "timestamp": 1746057600
       }
     ],
-    "nextPageToken": "33c04223-7701-4c54-a365-c7210a90ac79"
+    "nextPageToken": "72fd9078-4819-4264-b48f-b988049075bb"
   }
 expectedBody: |-
   {
@@ -105,13 +105,13 @@ glacierBody: |-
         "timestamp": 1750636800
       }
     ],
-    "nextPageToken": "e25e6f0a-b096-42a8-b49e-b42d49c9bcd4"
+    "nextPageToken": "7e7076d8-5a73-4744-9874-277bd8b29940"
   }
 expectedBody: |-
   {
     "results": [
       {
-        "value": 211,
+        "value": 215,
         "timestamp": 1751241600
       },
       {
@@ -136,7 +136,7 @@ glacierBody: |-
         "timestamp": 1751245200
       }
     ],
-    "nextPageToken": "77e0b3ef-6c2d-448e-9b78-a86c7f153cb6"
+    "nextPageToken": "e9c31ab8-a012-4c73-8731-bdffb493713c"
   }
 expectedBody: |-
   {

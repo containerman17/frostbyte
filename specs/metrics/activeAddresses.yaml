@@ -12,7 +12,7 @@ glacierBody: |-
         "timestamp": 1751245200
       }
     ],
-    "nextPageToken": "0a5ef229-c380-410d-a6d2-a9becb2c5fd9"
+    "nextPageToken": "2560cb40-e263-49f7-bf69-d259e1678f3f"
   }
 expectedBody: |-
   {
@@ -43,7 +43,7 @@ glacierBody: |-
         "timestamp": 1751155200
       }
     ],
-    "nextPageToken": "a46487ee-ffca-4035-8165-207ebdfb7044"
+    "nextPageToken": "46e73469-b508-4ce0-aef8-228a24c81c9b"
   }
 expectedBody: |-
   {
@@ -74,7 +74,7 @@ glacierBody: |-
         "timestamp": 1746057600
       }
     ],
-    "nextPageToken": "ff13cd26-db3d-460b-9541-68c54702bd74"
+    "nextPageToken": "df292576-7f07-440b-af8f-519f8c41a874"
   }
 expectedBody: |-
   {
@@ -105,13 +105,13 @@ glacierBody: |-
         "timestamp": 1750636800
       }
     ],
-    "nextPageToken": "d434357b-4bf0-42b7-b625-18821b37622e"
+    "nextPageToken": "ac36c2a4-15b3-4d3f-a4c4-616bc7a018bc"
   }
 expectedBody: |-
   {
     "results": [
       {
-        "value": 378,
+        "value": 412,
         "timestamp": 1751241600
       },
       {
@@ -136,7 +136,7 @@ glacierBody: |-
         "timestamp": 1751245200
       }
     ],
-    "nextPageToken": "0a5ef229-c380-410d-a6d2-a9becb2c5fd9"
+    "nextPageToken": "2560cb40-e263-49f7-bf69-d259e1678f3f"
   }
 expectedBody: |-
   {
