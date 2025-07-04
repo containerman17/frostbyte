@@ -7,7 +7,7 @@ import { startFetchingLoop } from './blockFetcher/startFetchingLoop';
 import { BatchRpc } from './blockFetcher/BatchRpc';
 import { RPC_URL, CHAIN_ID, DATA_DIR, RPS, REQUEST_BATCH_SIZE, MAX_CONCURRENT, BLOCKS_PER_BATCH, DEBUG_RPC_AVAILABLE, TEST_KILL_INDEXER_WHEN_DONE } from './config';
 import { createApiServer } from './server';
-import { startIndexer } from './indexer';
+import { startAllIndexers } from './indexer';
 
 
 const blocksDbPath = path.join(DATA_DIR, CHAIN_ID, DEBUG_RPC_AVAILABLE ? 'blocks.db' : 'blocks_no_dbg.db');
@@ -59,7 +59,6 @@ if (cluster.isPrimary) {
     });
 } else {
     if (process.env['ROLE'] === 'fetcher') {
-
         const blocksDb = new BlockDB({ path: blocksDbPath, isReadonly: false, hasDebug: DEBUG_RPC_AVAILABLE });
         const batchRpc = new BatchRpc({
             rpcUrl: RPC_URL,
@@ -75,12 +74,12 @@ if (cluster.isPrimary) {
         await awaitFileExists(indexingDbPath);
         await awaitFileExists(blocksDbPath);
 
-        const apiServer = createApiServer(blocksDbPath, indexingDbPath);
+        const apiServer = await createApiServer(blocksDbPath, indexingDbPath);
         apiServer.start(3000);
     } else if (process.env['ROLE'] === 'indexer') {
         await awaitFileExists(blocksDbPath);
 
-        await startIndexer({
+        await startAllIndexers({
             blocksDbPath,
             indexingDbPath,
             exitWhenDone: TEST_KILL_INDEXER_WHEN_DONE

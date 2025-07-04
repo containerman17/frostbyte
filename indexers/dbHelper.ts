@@ -38,21 +38,11 @@ export class IndexingDbHelper {
 }
 
 
-export function executePragmas({ db, isReadonly }: { db: Database, isReadonly: boolean }): void {
-    if (isReadonly) {
-        // Readonly: optimize for fast reads
-        db.pragma('mmap_size = 53687091200'); // 50GB - map entire database
-        db.pragma('cache_size = -32000'); // 32MB cache
-        db.pragma('synchronous = OFF'); // Fastest, safe for readonly
-        db.pragma('temp_store = MEMORY');
-        // Don't set journal_mode - it's already set by writer and requires write access
-    } else {
-        // Writer: optimize for fast writes while preventing corruption
-        db.pragma('mmap_size = 53687091200'); // 50GB - map entire database
-        db.pragma('cache_size = -64000'); // 64MB cache
-        db.pragma('synchronous = NORMAL'); // Fast but prevents corruption
-        db.pragma('journal_mode = WAL'); // Only writer sets this
-        db.pragma('temp_store = MEMORY');
-        // db.pragma('locking_mode = EXCLUSIVE'); // Single writer optimization
+
+const helpersCache = new Map<Database, IndexingDbHelper>();
+export function getIndexingDbHelper(db: Database): IndexingDbHelper {
+    if (!helpersCache.has(db)) {
+        helpersCache.set(db, new IndexingDbHelper(db));
     }
+    return helpersCache.get(db)!;
 }

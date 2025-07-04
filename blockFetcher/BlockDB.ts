@@ -140,6 +140,7 @@ export class BlockDB {
 
             // Prepare transaction data
             const txData: StoredTx = {
+                txNum: tx_num,//FIXME: coule be fetched from the column. double-storage here
                 tx: tx,
                 receipt: receipt,
                 blockTs: Number(storedBlock.block.timestamp)
@@ -236,7 +237,7 @@ export class BlockDB {
         upsert.run('hasDebug', hasDebug ? 1 : 0, 0);
     }
 
-    getTxBatch(greaterThanTxNum: number, limit: number): { txs: StoredTx[], traces: RpcTraceResult[] | undefined } {
+    getTxBatch(greaterThanTxNum: number, limit: number, includeTraces: boolean): { txs: StoredTx[], traces: RpcTraceResult[] | undefined } {
         const selectTxs = this.prepQuery(`
             SELECT tx_num, data, traces, codec 
             FROM txs 
@@ -265,8 +266,8 @@ export class BlockDB {
             const storedTx = JSON.parse(decompressedTxData.toString()) as StoredTx;
             txs.push(storedTx);
 
-            // Handle traces if debug is enabled
-            if (this.hasDebug) {
+            // Handle traces if both debug is enabled AND traces are requested
+            if (this.hasDebug && includeTraces) {
                 if (!row.traces) {
                     throw new Error(`hasDebug is true but no trace found for tx_num ${row.tx_num}`);
                 }
@@ -278,7 +279,7 @@ export class BlockDB {
 
         return {
             txs,
-            traces: this.hasDebug ? traces : undefined
+            traces: this.hasDebug && includeTraces ? traces : undefined
         };
     }
 

@@ -2,23 +2,12 @@ import { BlockDB } from './blockFetcher/BlockDB';
 import { createRPCIndexer } from './indexers/rpc';
 import { OpenAPIHono } from '@hono/zod-openapi';
 import Database from 'better-sqlite3';
-import { executePragmas } from './indexers/dbHelper';
-import { createMetricsIndexer } from './indexers/metrics/index';
 import { serve } from '@hono/node-server';
-import { createTeleporterMetricsIndexer } from './indexers/teleporterMetrics';
-import { createInfoIndexer } from './indexers/info';
-import { createSanityChecker } from './indexers/sanityChecker';
 import { IS_DEVELOPMENT, DEBUG_RPC_AVAILABLE } from './config';
-
-const indexerFactories = [
-    createRPCIndexer,
-    createMetricsIndexer,
-    createTeleporterMetricsIndexer,
-    createInfoIndexer,
-];
-if (IS_DEVELOPMENT) {
-    indexerFactories.push(createSanityChecker);
-}
+import { initializeIndexingDB } from './lib/dbHelper';
+import { loadPlugins } from './lib/plugins';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const docsPage = `
 <!doctype html>
@@ -42,17 +31,19 @@ const docsPage = `
 </html>
 `;
 
-export function createApiServer(blocksDbPath: string, indexingDbPath: string) {
+export async function createApiServer(blocksDbPath: string, indexingDbPath: string) {
     const blocksDb = new BlockDB({ path: blocksDbPath, isReadonly: true, hasDebug: DEBUG_RPC_AVAILABLE });
     const indexingDb = new Database(indexingDbPath, { readonly: true });
 
-    executePragmas({ db: indexingDb, isReadonly: true });
+    initializeIndexingDB({ db: indexingDb, isReadonly: true });
+
+    const __dirname = path.dirname(fileURLToPath(import.meta.url));
+    const indexers = await loadPlugins([path.join(__dirname, 'plugins')]);
 
     const app = new OpenAPIHono();
 
-    for (const indexerFactory of indexerFactories) {
-        const indexer = indexerFactory(blocksDb, indexingDb);
-        indexer.registerRoutes(app);
+    for (const indexer of indexers) {
+        indexer.registerRoutes(app, indexingDb, blocksDb);
     }
 
     // Add OpenAPI documentation endpoint

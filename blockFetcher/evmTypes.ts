@@ -122,6 +122,7 @@ export interface RpcTraceResponse {
 
 export type StoredBlock = Omit<RpcBlock, 'transactions'>
 export type StoredTx = {
+    txNum: number;
     tx: RpcBlockTransaction;
     receipt: RpcTxReceipt;
     blockTs: number;
