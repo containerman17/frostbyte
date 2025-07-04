@@ -41,7 +41,7 @@ const initialize: IndexerModule["initialize"] = (db) => {
 };
 
 // Batch processor (required)
-const handleTxBatch: IndexerModule["handleTxBatch"] = (db, blocksDb, batch) => {
+const handleTxBatch: IndexerModule["handleTxBatch"] = (db, _blocksDb, batch) => {
     let sourceDelta = 0;
     let destinationDelta = 0;
 
