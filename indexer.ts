@@ -13,6 +13,10 @@ export interface IndexerOptions {
     exitWhenDone?: boolean;
 }
 
+export interface SingleIndexerOptions extends IndexerOptions {
+    indexerName: string;
+}
+
 async function startIndexer(
     indexer: IndexerModule,
     blocksDb: BlockDB,
@@ -117,4 +121,35 @@ export async function startAllIndexers(options: IndexerOptions): Promise<void> {
     // Clean up (only reached in exitWhenDone mode)
     blocksDb.close();
     indexingDb.close();
+}
+
+export async function startSingleIndexer(options: SingleIndexerOptions): Promise<void> {
+    const { blocksDbPath, indexingDbPath, exitWhenDone = false, indexerName } = options;
+
+    const blocksDb = new BlockDB({ path: blocksDbPath, isReadonly: true, hasDebug: DEBUG_RPC_AVAILABLE });
+    const indexingDb = new Database(indexingDbPath, { readonly: false });
+
+    const __dirname = path.dirname(fileURLToPath(import.meta.url));
+    const indexers = await loadPlugins([path.join(__dirname, 'plugins')]);
+
+    // Find the specific indexer
+    const indexer = indexers.find(i => i.name === indexerName);
+    if (!indexer) {
+        throw new Error(`Indexer ${indexerName} not found`);
+    }
+
+    initializeIndexingDB({ db: indexingDb, isReadonly: false });
+
+    // Start the single indexer
+    await startIndexer(indexer, blocksDb, indexingDb, exitWhenDone);
+
+    // Clean up
+    blocksDb.close();
+    indexingDb.close();
+}
+
+export async function getAvailableIndexers(): Promise<string[]> {
+    const __dirname = path.dirname(fileURLToPath(import.meta.url));
+    const indexers = await loadPlugins([path.join(__dirname, 'plugins')]);
+    return indexers.map(i => i.name);
 } 

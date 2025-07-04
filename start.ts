@@ -1,4 +1,3 @@
-
 import cluster from 'node:cluster';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -7,7 +6,7 @@ import { startFetchingLoop } from './blockFetcher/startFetchingLoop';
 import { BatchRpc } from './blockFetcher/BatchRpc';
 import { RPC_URL, CHAIN_ID, DATA_DIR, RPS, REQUEST_BATCH_SIZE, MAX_CONCURRENT, BLOCKS_PER_BATCH, DEBUG_RPC_AVAILABLE, TEST_KILL_INDEXER_WHEN_DONE } from './config';
 import { createApiServer } from './server';
-import { startAllIndexers } from './indexer';
+import { startAllIndexers, startSingleIndexer, getAvailableIndexers } from './indexer';
 
 
 const blocksDbPath = path.join(DATA_DIR, CHAIN_ID, DEBUG_RPC_AVAILABLE ? 'blocks.db' : 'blocks_no_dbg.db');
@@ -79,14 +78,50 @@ if (cluster.isPrimary) {
     } else if (process.env['ROLE'] === 'indexer') {
         await awaitFileExists(blocksDbPath);
 
-        await startAllIndexers({
-            blocksDbPath,
-            indexingDbPath,
-            exitWhenDone: TEST_KILL_INDEXER_WHEN_DONE
-        });
+        // Check if this is a specific indexer worker or the master indexer coordinator
+        const specificIndexer = process.env['INDEXER_NAME'];
+        
+        if (specificIndexer) {
+            // This is a specific indexer worker
+            await startSingleIndexer({
+                blocksDbPath,
+                indexingDbPath,
+                indexerName: specificIndexer,
+                exitWhenDone: TEST_KILL_INDEXER_WHEN_DONE
+            });
 
-        if (TEST_KILL_INDEXER_WHEN_DONE) {
-            process.exit(0);
+            if (TEST_KILL_INDEXER_WHEN_DONE) {
+                process.exit(0);
+            }
+        } else {
+            // This is the master indexer coordinator - spawn child processes for each indexer
+            const availableIndexers = await getAvailableIndexers();
+            console.log(`Spawning ${availableIndexers.length} indexer workers: ${availableIndexers.join(', ')}`);
+            
+            const workers: cluster.Worker[] = [];
+            
+            for (const indexerName of availableIndexers) {
+                const worker = cluster.fork({ 
+                    ROLE: 'indexer', 
+                    INDEXER_NAME: indexerName 
+                });
+                workers.push(worker);
+            }
+
+            if (TEST_KILL_INDEXER_WHEN_DONE) {
+                // Wait for all indexer workers to exit
+                let exitedCount = 0;
+                cluster.on('exit', (worker) => {
+                    if (workers.includes(worker)) {
+                        exitedCount++;
+                        console.log(`Indexer worker exited (${exitedCount}/${workers.length})`);
+                        if (exitedCount === workers.length) {
+                            console.log('All indexer workers completed');
+                            process.exit(0);
+                        }
+                    }
+                });
+            }
         }
     } else {
         throw new Error('unknown role');
