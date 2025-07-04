@@ -1,6 +1,6 @@
 process.env.NODE_ENV = "dev"
 process.env.RPC_URL = "http://localhost:3333/rpc" //Points to itself
-process.env.CHAIN_ID = "e2e_zerooneMainnet"
+process.env.CHAIN_ID = "e2e_numine"
 process.env.DATA_DIR = "./database"
 process.env.RPS = "1000"
 process.env.REQUEST_BATCH_SIZE = "100"

@@ -80,7 +80,7 @@ async function updateYamlFile(yamlFilePath: string, chainId: number, forceUpdate
 
 // Parse command line arguments
 const forceUpdate = process.argv.includes('--force')
-const E2E_CHAIN_ID = 27827;
+const E2E_CHAIN_ID = 8021;
 
 // Get all YAML files in specs directory
 const specsDir = './specs';
