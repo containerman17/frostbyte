@@ -54,6 +54,5 @@ export function executePragmas({ db, isReadonly }: { db: Database, isReadonly: b
         db.pragma('journal_mode = WAL'); // Keep WAL for atomicity
         db.pragma('wal_autocheckpoint = 10000'); // Checkpoint less frequently
         db.pragma('temp_store = MEMORY');
-        db.pragma('locking_mode = EXCLUSIVE'); // Single writer optimization
     }
 }
