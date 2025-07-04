@@ -3,7 +3,6 @@ import { LazyTx, lazyTxToReceipt } from "./blockFetcher/lazy/LazyTx";
 import { LazyBlock, lazyBlockToBlock } from "./blockFetcher/lazy/LazyBlock";
 import { LazyTraces } from "./blockFetcher/lazy/LazyTrace";
 import { RpcBlock, RpcTxReceipt } from "./blockFetcher/evmTypes";
-import { pack } from 'msgpackr';
 import * as fs from 'fs';
 import * as path from 'path';
 import { tmpdir } from 'os';
@@ -79,14 +78,9 @@ console.log(`Got ${otherChainBlocks.length} blocks and ${otherChainReceipts.leng
 // Dictionary size configurations
 const DICT_SIZES = [
     { name: 'no dict', size: 0 },
-    { name: '8KB', size: 8 * 1024 },
-    { name: '16KB', size: 16 * 1024 },
-    { name: '32KB', size: 32 * 1024 },
+    { name: '63KB', size: 63 * 1024 },
     { name: '64KB', size: 64 * 1024 },
-    { name: '128KB', size: 128 * 1024 },
-    { name: '256KB', size: 256 * 1024 },
-    { name: '512KB', size: 512 * 1024 },
-    { name: '1MB', size: 1024 * 1024 }
+    { name: '65KB', size: 65 * 1024 },
 ];
 
 // Helper function to train dictionary using zstd CLI
@@ -146,8 +140,8 @@ function benchmarkDataset(datasetName: string, data: any[]): BenchmarkResult[] {
 
     const results: BenchmarkResult[] = [];
 
-    // Get baseline size (msgpack without compression)
-    const baselineSize = data.reduce((sum, item) => sum + Buffer.from(pack(item)).length, 0);
+    // Get baseline size (JSON without compression)
+    const baselineSize = data.reduce((sum, item) => sum + Buffer.from(JSON.stringify(item)).length, 0);
 
     for (const dictConfig of DICT_SIZES) {
         console.log(`Training dictionary: ${dictConfig.name}...`);
@@ -156,7 +150,7 @@ function benchmarkDataset(datasetName: string, data: any[]): BenchmarkResult[] {
         const dictionary = trainDictionary(
             data,
             `${datasetName}-${dictConfig.name}`,
-            item => Buffer.from(pack(item)),
+            item => Buffer.from(JSON.stringify(item)),
             dictConfig.size
         );
 
@@ -174,8 +168,8 @@ function benchmarkDataset(datasetName: string, data: any[]): BenchmarkResult[] {
         const encodedItems: Buffer[] = [];
         const encodeStart = performance.now();
         for (const item of data) {
-            const packed = Buffer.from(pack(item));
-            encodedItems.push(compressor.compress(packed));
+            const jsonString = JSON.stringify(item);
+            encodedItems.push(compressor.compress(Buffer.from(jsonString)));
         }
         const encodeTime = performance.now() - encodeStart;
 
@@ -187,7 +181,7 @@ function benchmarkDataset(datasetName: string, data: any[]): BenchmarkResult[] {
         const decodeStart = performance.now();
         for (const encoded of encodedItems) {
             const decompressed = decompressor.decompress(encoded);
-            pack(decompressed); // Unpack to complete the process
+            JSON.parse(decompressed.toString()); // Parse to complete the process
         }
         const decodeTime = performance.now() - decodeStart;
 
@@ -214,8 +208,8 @@ function benchmarkCrossChain(datasetName: string, trainingData: any[], testData:
 
     const results: BenchmarkResult[] = [];
 
-    // Get baseline size (msgpack without compression)
-    const baselineSize = testData.reduce((sum, item) => sum + Buffer.from(pack(item)).length, 0);
+    // Get baseline size (JSON without compression)
+    const baselineSize = testData.reduce((sum, item) => sum + Buffer.from(JSON.stringify(item)).length, 0);
 
     for (const dictConfig of DICT_SIZES) {
         console.log(`Training cross-chain dictionary: ${dictConfig.name}...`);
@@ -224,7 +218,7 @@ function benchmarkCrossChain(datasetName: string, trainingData: any[], testData:
         const dictionary = trainDictionary(
             trainingData,
             `cross-${datasetName}-${dictConfig.name}`,
-            item => Buffer.from(pack(item)),
+            item => Buffer.from(JSON.stringify(item)),
             dictConfig.size
         );
 
@@ -242,8 +236,8 @@ function benchmarkCrossChain(datasetName: string, trainingData: any[], testData:
         const encodedItems: Buffer[] = [];
         const encodeStart = performance.now();
         for (const item of testData) {
-            const packed = Buffer.from(pack(item));
-            encodedItems.push(compressor.compress(packed));
+            const jsonString = JSON.stringify(item);
+            encodedItems.push(compressor.compress(Buffer.from(jsonString)));
         }
         const encodeTime = performance.now() - encodeStart;
 
@@ -255,7 +249,7 @@ function benchmarkCrossChain(datasetName: string, trainingData: any[], testData:
         const decodeStart = performance.now();
         for (const encoded of encodedItems) {
             const decompressed = decompressor.decompress(encoded);
-            pack(decompressed); // Unpack to complete the process
+            JSON.parse(decompressed.toString()); // Parse to complete the process
         }
         const decodeTime = performance.now() - decodeStart;
 
