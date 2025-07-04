@@ -42,79 +42,75 @@ const initialize: IndexerModule["initialize"] = (db) => {
 
 // Handle transaction batch
 const handleTxBatch: IndexerModule["handleTxBatch"] = (db, _blocksDb, batch) => {
-    const transaction = db.transaction(() => {
-        // Temporary table for batch operations
-        db.exec(`
-            CREATE TEMP TABLE IF NOT EXISTS temp_senders (
-                time_interval INTEGER,
-                period_timestamp INTEGER,
-                address TEXT,
-                PRIMARY KEY (time_interval, period_timestamp, address)
-            ) WITHOUT ROWID
-        `);
+    // Temporary table for batch operations
+    db.exec(`
+        CREATE TEMP TABLE IF NOT EXISTS temp_senders (
+            time_interval INTEGER,
+            period_timestamp INTEGER,
+            address TEXT,
+            PRIMARY KEY (time_interval, period_timestamp, address)
+        ) WITHOUT ROWID
+    `);
 
-        const tempStmt = prepQueryCached(db, `
-            INSERT OR IGNORE INTO temp_senders (time_interval, period_timestamp, address) 
-            VALUES (?, ?, ?)
-        `);
+    const tempStmt = prepQueryCached(db, `
+        INSERT OR IGNORE INTO temp_senders (time_interval, period_timestamp, address) 
+        VALUES (?, ?, ?)
+    `);
 
-        // Collect senders per time period
-        const periodSenders = new Map<string, Set<string>>();
+    // Collect senders per time period
+    const periodSenders = new Map<string, Set<string>>();
 
-        for (const tx of batch.txs) {
-            const blockTimestamp = tx.blockTs;
-            
-            // Collect transaction sender
-            const senders = new Set<string>();
-            senders.add(tx.tx.from);
-            
-            // Extract Transfer event senders
-            const transferAddresses = extractTransferAddresses(tx.receipt.logs);
-            for (const sender of transferAddresses.senders) {
-                senders.add(sender);
-            }
+    for (const tx of batch.txs) {
+        const blockTimestamp = tx.blockTs;
 
-            // Add to period maps
-            for (const timeInterval of [TIME_INTERVAL_HOUR, TIME_INTERVAL_DAY, TIME_INTERVAL_WEEK, TIME_INTERVAL_MONTH]) {
-                const periodTimestamp = normalizeTimestamp(blockTimestamp, timeInterval);
-                const key = `${timeInterval},${periodTimestamp}`;
-                
-                if (!periodSenders.has(key)) {
-                    periodSenders.set(key, new Set<string>());
-                }
-                
-                for (const sender of senders) {
-                    periodSenders.get(key)!.add(sender);
-                    tempStmt.run(timeInterval, periodTimestamp, sender);
-                }
-            }
+        // Collect transaction sender
+        const senders = new Set<string>();
+        senders.add(tx.tx.from);
+
+        // Extract Transfer event senders
+        const transferAddresses = extractTransferAddresses(tx.receipt.logs);
+        for (const sender of transferAddresses.senders) {
+            senders.add(sender);
         }
 
-        // Bulk insert from temp table to main table
-        db.exec(`
-            INSERT OR IGNORE INTO active_senders (time_interval, period_timestamp, address)
-            SELECT time_interval, period_timestamp, address FROM temp_senders
-        `);
+        // Add to period maps
+        for (const timeInterval of [TIME_INTERVAL_HOUR, TIME_INTERVAL_DAY, TIME_INTERVAL_WEEK, TIME_INTERVAL_MONTH]) {
+            const periodTimestamp = normalizeTimestamp(blockTimestamp, timeInterval);
+            const key = `${timeInterval},${periodTimestamp}`;
 
-        // Update counts
-        db.exec(`
-            INSERT OR REPLACE INTO active_senders_count (time_interval, period_timestamp, count)
-            SELECT 
-                time_interval,
-                period_timestamp,
-                COUNT(DISTINCT address)
-            FROM active_senders
-            WHERE (time_interval, period_timestamp) IN (
-                SELECT DISTINCT time_interval, period_timestamp FROM temp_senders
-            )
-            GROUP BY time_interval, period_timestamp
-        `);
+            if (!periodSenders.has(key)) {
+                periodSenders.set(key, new Set<string>());
+            }
 
-        // Clean up temp table
-        db.exec(`DROP TABLE temp_senders`);
-    });
+            for (const sender of senders) {
+                periodSenders.get(key)!.add(sender);
+                tempStmt.run(timeInterval, periodTimestamp, sender);
+            }
+        }
+    }
 
-    transaction();
+    // Bulk insert from temp table to main table
+    db.exec(`
+        INSERT OR IGNORE INTO active_senders (time_interval, period_timestamp, address)
+        SELECT time_interval, period_timestamp, address FROM temp_senders
+    `);
+
+    // Update counts
+    db.exec(`
+        INSERT OR REPLACE INTO active_senders_count (time_interval, period_timestamp, count)
+        SELECT 
+            time_interval,
+            period_timestamp,
+            COUNT(DISTINCT address)
+        FROM active_senders
+        WHERE (time_interval, period_timestamp) IN (
+            SELECT DISTINCT time_interval, period_timestamp FROM temp_senders
+        )
+        GROUP BY time_interval, period_timestamp
+    `);
+
+    // Clean up temp table
+    db.exec(`DROP TABLE temp_senders`);
 };
 
 // Register routes

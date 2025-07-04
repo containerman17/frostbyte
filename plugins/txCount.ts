@@ -23,36 +23,33 @@ const initialize: IndexerModule["initialize"] = (db) => {
 
 // Handle transaction batch
 const handleTxBatch: IndexerModule["handleTxBatch"] = (db, _blocksDb, batch) => {
-    const transaction = db.transaction(() => {
-        const stmt = prepQueryCached(db, `
+    const stmt = prepQueryCached(db, `
             INSERT INTO tx_counts (time_interval, timestamp, count)
             VALUES (?, ?, ?)
             ON CONFLICT(time_interval, timestamp)
             DO UPDATE SET count = count + ?
         `);
 
-        // Count transactions per time period
-        const periodCounts = new Map<string, number>();
-        
-        for (const tx of batch.txs) {
-            const blockTimestamp = tx.blockTs;
-            
-            // Update counts for each time interval
-            for (const timeInterval of [TIME_INTERVAL_HOUR, TIME_INTERVAL_DAY, TIME_INTERVAL_WEEK, TIME_INTERVAL_MONTH]) {
-                const normalizedTimestamp = normalizeTimestamp(blockTimestamp, timeInterval);
-                const key = `${timeInterval},${normalizedTimestamp}`;
-                periodCounts.set(key, (periodCounts.get(key) || 0) + 1);
-            }
-        }
+    // Count transactions per time period
+    const periodCounts = new Map<string, number>();
 
-        // Apply all updates
-        for (const [key, count] of periodCounts) {
-            const [timeInterval, timestamp] = key.split(',').map(Number);
-            stmt.run(timeInterval, timestamp, count, count);
-        }
-    });
+    for (const tx of batch.txs) {
+        const blockTimestamp = tx.blockTs;
 
-    transaction();
+        // Update counts for each time interval
+        for (const timeInterval of [TIME_INTERVAL_HOUR, TIME_INTERVAL_DAY, TIME_INTERVAL_WEEK, TIME_INTERVAL_MONTH]) {
+            const normalizedTimestamp = normalizeTimestamp(blockTimestamp, timeInterval);
+            const key = `${timeInterval},${normalizedTimestamp}`;
+            periodCounts.set(key, (periodCounts.get(key) || 0) + 1);
+        }
+    }
+
+    // Apply all updates
+    for (const [key, count] of periodCounts) {
+        const [timeInterval, timestamp] = key.split(',').map(Number);
+        stmt.run(timeInterval, timestamp, count, count);
+    }
+
 };
 
 // Register routes

@@ -46,50 +46,46 @@ const handleTxBatch: IndexerModule["handleTxBatch"] = (db, _blocksDb, batch) => 
         return;
     }
 
-    const transaction = db.transaction(() => {
-        // Get current cumulative count for each interval
-        const getCurrentStmt = prepQueryCached(db, `
-            SELECT MAX(count) as max_count 
-            FROM cumulative_contracts 
-            WHERE time_interval = ?
-        `);
+    // Get current cumulative count for each interval
+    const getCurrentStmt = prepQueryCached(db, `
+        SELECT MAX(count) as max_count 
+        FROM cumulative_contracts 
+        WHERE time_interval = ?
+    `);
 
-        const updateStmt = prepQueryCached(db, `
-            INSERT INTO cumulative_contracts (time_interval, timestamp, count)
-            VALUES (?, ?, ?)
-            ON CONFLICT(time_interval, timestamp)
-            DO UPDATE SET count = ?
-        `);
+    const updateStmt = prepQueryCached(db, `
+        INSERT INTO cumulative_contracts (time_interval, timestamp, count)
+        VALUES (?, ?, ?)
+        ON CONFLICT(time_interval, timestamp)
+        DO UPDATE SET count = ?
+    `);
 
-        // Collect unique timestamps for this batch
-        const timestampsByInterval = new Map<number, Set<number>>();
-        
-        for (const tx of batch.txs) {
-            const blockTimestamp = tx.blockTs;
-            
-            for (const timeInterval of [TIME_INTERVAL_HOUR, TIME_INTERVAL_DAY, TIME_INTERVAL_WEEK, TIME_INTERVAL_MONTH]) {
-                const normalizedTimestamp = normalizeTimestamp(blockTimestamp, timeInterval);
-                
-                if (!timestampsByInterval.has(timeInterval)) {
-                    timestampsByInterval.set(timeInterval, new Set());
-                }
-                timestampsByInterval.get(timeInterval)!.add(normalizedTimestamp);
+    // Collect unique timestamps for this batch
+    const timestampsByInterval = new Map<number, Set<number>>();
+
+    for (const tx of batch.txs) {
+        const blockTimestamp = tx.blockTs;
+
+        for (const timeInterval of [TIME_INTERVAL_HOUR, TIME_INTERVAL_DAY, TIME_INTERVAL_WEEK, TIME_INTERVAL_MONTH]) {
+            const normalizedTimestamp = normalizeTimestamp(blockTimestamp, timeInterval);
+
+            if (!timestampsByInterval.has(timeInterval)) {
+                timestampsByInterval.set(timeInterval, new Set());
             }
+            timestampsByInterval.get(timeInterval)!.add(normalizedTimestamp);
         }
+    }
 
-        // Update cumulative counts for each interval
-        for (const [timeInterval, timestamps] of timestampsByInterval) {
-            const result = getCurrentStmt.get(timeInterval) as { max_count: number | null };
-            const currentCount = result?.max_count || 0;
-            const newCount = currentCount + batchContractCount;
+    // Update cumulative counts for each interval
+    for (const [timeInterval, timestamps] of timestampsByInterval) {
+        const result = getCurrentStmt.get(timeInterval) as { max_count: number | null };
+        const currentCount = result?.max_count || 0;
+        const newCount = currentCount + batchContractCount;
 
-            for (const timestamp of timestamps) {
-                updateStmt.run(timeInterval, timestamp, newCount, newCount);
-            }
+        for (const timestamp of timestamps) {
+            updateStmt.run(timeInterval, timestamp, newCount, newCount);
         }
-    });
-
-    transaction();
+    }
 };
 
 // Register routes
@@ -151,7 +147,7 @@ const registerRoutes: IndexerModule["registerRoutes"] = (app, db) => {
             FROM cumulative_contracts 
             WHERE time_interval = ?
         `).get(timeIntervalId) as { max_count: number | null };
-        
+
         const currentCumulativeValue = currentResult?.max_count || 0;
 
         // Build query
