@@ -135,7 +135,8 @@ export class BlockDB {
             if (!receipt) throw new Error(`Receipt not found for tx ${tx.hash}`);
 
             // Calculate tx_num using the formula: (block_num << 16) | tx_idx
-            const tx_num = (blockNumber << 16) | i;
+            // Use BigInt to avoid 32-bit overflow in JavaScript bitwise operations
+            const tx_num = Number((BigInt(blockNumber) << 16n) | BigInt(i));
 
             // Prepare transaction data
             const txData: StoredTx = {
@@ -183,7 +184,7 @@ export class BlockDB {
       
           -- Transactions ----------------------------------------------------
           CREATE TABLE IF NOT EXISTS txs (
-            tx_num    INTEGER PRIMARY KEY,                           -- (block_num<<16)|tx_idx
+            tx_num    INTEGER PRIMARY KEY,                           -- (block_num<<16)|tx_idx (6 bytes: 4 for block, 2 for tx)
             hash      BLOB    NOT NULL UNIQUE,                       -- 32-byte tx hash
             block_num INTEGER GENERATED ALWAYS AS (tx_num >> 16) VIRTUAL,
             tx_idx    INTEGER GENERATED ALWAYS AS (tx_num & 0xFFFF) VIRTUAL,
@@ -334,8 +335,9 @@ export class BlockDB {
         // tx_num encoding: (block_num << 16) | tx_idx
         // For block N, tx_num range is [N << 16, (N << 16) | 0xFFFF]
         // This range covers all possible transaction indices (0 to 65535) for the block
-        const minTxNum = blockNumber << 16;
-        const maxTxNum = minTxNum | 0xFFFF;
+        // Use BigInt to avoid 32-bit overflow in JavaScript bitwise operations
+        const minTxNum = Number(BigInt(blockNumber) << 16n);
+        const maxTxNum = Number((BigInt(blockNumber) << 16n) | 0xFFFFn);
 
         const selectTxs = this.prepQuery(`
             SELECT tx_num, data, codec 
