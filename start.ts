@@ -59,7 +59,7 @@ if (cluster.isPrimary) {
     });
 } else {
     if (process.env['ROLE'] === 'fetcher') {
-        await new Promise(resolve => setTimeout(resolve, 1000));
+
         const blocksDb = new BlockDB({ path: blocksDbPath, isReadonly: false, hasDebug: DEBUG_RPC_AVAILABLE });
         const batchRpc = new BatchRpc({
             rpcUrl: RPC_URL,
