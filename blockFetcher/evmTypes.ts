@@ -119,3 +119,11 @@ export interface RpcTraceResponse {
     id: number;
     result: RpcTraceResult[];
 }
+
+export type StoredBlock = Omit<RpcBlock, 'transactions'>
+export type StoredTx = {
+    txNum: number;
+    tx: RpcBlockTransaction;
+    receipt: RpcTxReceipt;
+    blockTs: number;
+}

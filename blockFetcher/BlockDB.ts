@@ -1,13 +1,10 @@
 import Database from 'better-sqlite3';
+import { RpcBlock, RpcBlockTransaction, RpcTxReceipt, RpcTraceResult, StoredTx } from './evmTypes';
+import { compress as zstdCompress, decompress as zstdDecompress } from 'zstd-napi';
 import { StoredBlock } from './BatchRpc';
-import { encodeLazyBlock, LazyBlock } from './lazy/LazyBlock';
-import { encodeLazyTx, LazyTx } from './lazy/LazyTx';
-import { compressSync as lz4CompressSync, uncompressSync as lz4UncompressSync } from 'lz4-napi';
-import { LazyTraces, encodeLazyTraces } from './lazy/LazyTrace';
 
 export class BlockDB {
     private db: InstanceType<typeof Database>;
-
     private prepped: Map<string, any>;
     private isReadonly: boolean;
     private hasDebug: boolean;
@@ -42,118 +39,6 @@ export class BlockDB {
         this.hasDebug = hasDebug;
     }
 
-
-    //TODO: could be more efficient, but decoding is 60% of the time now. So 2x faster queries would improve the overall performance only by 20%.
-    getBlocks(start: number, maxTransactions: number): { block: LazyBlock, txs: LazyTx[], traces: LazyTraces | undefined }[] {
-        const totalStart = performance.now();
-        let queryTime = 0;
-        let decodingTime = 0;
-
-        // First, find blocks with their transaction counts using a LEFT JOIN to include empty blocks
-        const planStart = performance.now();
-        const selectBlocksWithCounts = this.prepQuery(`
-            SELECT 
-                b.id as block_id,
-                COALESCE(t.tx_count, 0) as tx_count
-            FROM blocks b
-            LEFT JOIN (
-                SELECT block_id, COUNT(*) as tx_count
-                FROM txs
-                GROUP BY block_id
-            ) t ON b.id = t.block_id
-            WHERE b.id >= ?
-            ORDER BY b.id
-            LIMIT 1000
-        `);
-        const blocksWithCounts = selectBlocksWithCounts.all(start) as { block_id: number, tx_count: number }[];
-
-        if (blocksWithCounts.length === 0) {
-            return [];
-        }
-
-        // Determine which blocks to fetch based on transaction limit
-        let totalTxs = 0;
-        let blocksToFetch: number[] = [];
-
-        for (const { block_id, tx_count } of blocksWithCounts) {
-            if (totalTxs + tx_count > maxTransactions && blocksToFetch.length > 0) {
-                break;
-            }
-
-            blocksToFetch.push(block_id);
-            totalTxs += tx_count;
-
-            if (totalTxs >= maxTransactions) {
-                break;
-            }
-        }
-
-        const planTime = performance.now() - planStart;
-        queryTime += planTime;
-
-        if (blocksToFetch.length === 0) {
-            return [];
-        }
-
-        let result: { block: LazyBlock, txs: LazyTx[], traces: LazyTraces | undefined }[] = [];
-
-        for (const blockNumber of blocksToFetch) {
-            // Time block query
-            const blockQueryStart = performance.now();
-            const selectBlock = this.prepQuery('SELECT data, traces FROM blocks WHERE id = ?');
-            const blockResult = selectBlock.get(blockNumber) as { data: Buffer, traces: Buffer | null } | undefined;
-            queryTime += performance.now() - blockQueryStart;
-
-            if (!blockResult) throw new Error(`Block ${blockNumber} not found`);
-
-            // Time block decoding
-            const blockDecodeStart = performance.now();
-            const decompressedBlockData = lz4UncompressSync(blockResult.data);
-            const block = new LazyBlock(decompressedBlockData);
-
-            // Decode traces based on hasDebug flag
-            let traces: LazyTraces | undefined = undefined;
-            if (this.hasDebug) {
-                if (!blockResult.traces) {
-                    throw new Error(`hasDebug is true but no traces found for block ${blockNumber} - data corruption`);
-                }
-                const decompressedTracesData = lz4UncompressSync(blockResult.traces);
-                traces = new LazyTraces(decompressedTracesData);
-            }
-            decodingTime += performance.now() - blockDecodeStart;
-
-            const txs: LazyTx[] = [];
-
-            // Only query transactions if the block has any
-            if (block.transactionCount > 0) {
-                for (let txIndex = 0; txIndex < block.transactionCount; txIndex++) {
-                    // Time tx query
-                    const txQueryStart = performance.now();
-                    const selectTx = this.prepQuery('SELECT data FROM txs WHERE block_id = ? AND tx_ix = ?');
-                    const txResult = selectTx.get(blockNumber, txIndex) as { data: Buffer } | undefined;
-                    queryTime += performance.now() - txQueryStart;
-
-                    if (!txResult) throw new Error(`Tx ${blockNumber}:${txIndex} not found`);
-
-                    // Time tx decoding
-                    const txDecodeStart = performance.now();
-                    const decompressedTxData = lz4UncompressSync(txResult.data);
-                    const tx = new LazyTx(decompressedTxData);
-                    decodingTime += performance.now() - txDecodeStart;
-
-                    txs.push(tx);
-                }
-            }
-
-            result.push({ block, txs, traces });
-        }
-
-        const totalTime = performance.now() - totalStart;
-        console.log(`getBlocks(${start}, max ${maxTransactions} txs): got ${totalTxs} txs in ${blocksToFetch.length} blocks, total=${Math.round(totalTime)}ms, query=${Math.round(queryTime)}ms, decode=${Math.round(decodingTime)}ms`);
-
-        return result;
-    }
-
     getEvmChainId(): number {
         const select = this.prepQuery('SELECT value FROM kv_int WHERE key = ?');
         const result = select.get('evm_chain_id') as { value: number } | undefined;
@@ -161,14 +46,14 @@ export class BlockDB {
     }
 
     setEvmChainId(chainId: number) {
-        const upsert = this.prepQuery('INSERT OR REPLACE INTO kv_int (key, value) VALUES (?, ?)');
-        upsert.run('evm_chain_id', chainId);
+        const upsert = this.prepQuery('INSERT OR REPLACE INTO kv_int (key, value, codec) VALUES (?, ?, ?)');
+        upsert.run('evm_chain_id', chainId, 0);
     }
 
     getLastStoredBlockNumber(): number {
-        const selectMax = this.prepQuery('SELECT MAX(id) as max_id FROM blocks');
-        const result = selectMax.get() as { max_id: number | null } | undefined;
-        const result2 = result?.max_id ?? -1;
+        const selectMax = this.prepQuery('SELECT MAX(number) as max_number FROM blocks');
+        const result = selectMax.get() as { max_number: number | null } | undefined;
+        const result2 = result?.max_number ?? -1;
         return result2;
     }
 
@@ -180,67 +65,21 @@ export class BlockDB {
 
         const insertMany = this.db.transaction((batch: StoredBlock[]) => {
             for (let i = 0; i < batch.length; i++) {
-                const block = batch[i]!;
-                if (Number(block.block.number) !== lastStoredBlockNum + 1) {
-                    throw new Error(`Batch not sorted or has gaps: expected ${lastStoredBlockNum + 1}, got ${Number(block.block.number)}`);
+                const storedBlock = batch[i]!;
+                if (Number(storedBlock.block.number) !== lastStoredBlockNum + 1) {
+                    throw new Error(`Batch not sorted or has gaps: expected ${lastStoredBlockNum + 1}, got ${Number(storedBlock.block.number)}`);
                 }
-                this.storeBlock(block);
+                this.storeBlock(storedBlock);
                 lastStoredBlockNum++;
             }
         });
         insertMany(batch);
     }
 
-    getBlock(n: number): LazyBlock {
-        const selectBlock = this.prepQuery('SELECT data FROM blocks WHERE id = ?');
-        const result = selectBlock.get(n) as { data: Buffer } | undefined;
-        if (!result) throw new Error(`Block ${n} not found`);
-
-        // Decompress the data
-        const decompressedData = lz4UncompressSync(result.data);
-        return new LazyBlock(decompressedData);
-    }
-
-    getTx(n: number, ix: number): LazyTx {
-        const selectTx = this.prepQuery('SELECT data FROM txs WHERE block_id = ? AND tx_ix = ?');
-        const result = selectTx.get(n, ix) as { data: Buffer } | undefined;
-        if (!result) throw new Error(`Tx ${n}:${ix} not found`);
-
-        // Decompress the data
-        const decompressedData = lz4UncompressSync(result.data);
-        return new LazyTx(decompressedData);
-    }
-
-    getBlockWithTransactions(blockNumber: number): { block: LazyBlock, txs: LazyTx[] } {
-        // Get the block first
-        const block = this.getBlock(blockNumber);
-
-        // Query all transactions for this block at once, ordered by tx_ix
-        const selectTxs = this.prepQuery('SELECT data FROM txs WHERE block_id = ? ORDER BY tx_ix');
-        const results = selectTxs.all(blockNumber) as { data: Buffer }[];
-
-        if (results.length !== block.transactionCount) {
-            throw new Error(`Expected ${block.transactionCount} transactions for block ${blockNumber}, but found ${results.length}`);
-        }
-
-        // Decompress and create LazyTx objects
-        const txs: LazyTx[] = [];
-        for (const result of results) {
-            const decompressedData = lz4UncompressSync(result.data);
-            txs.push(new LazyTx(decompressedData));
-        }
-
-        return { block, txs };
-    }
-
-    getBlockTransactions(blockNumber: number): LazyTx[] {
-        return this.getBlockWithTransactions(blockNumber).txs;
-    }
-
     setBlockchainLatestBlockNum(blockNumber: number) {
         if (this.isReadonly) throw new Error('BlockDB is readonly');
-        const upsert = this.prepQuery('INSERT OR REPLACE INTO kv_int (key, value) VALUES (?, ?)');
-        upsert.run('blockchain_latest_block', blockNumber);
+        const upsert = this.prepQuery('INSERT OR REPLACE INTO kv_int (key, value, codec) VALUES (?, ?, ?)');
+        upsert.run('blockchain_latest_block', blockNumber, 0);
     }
 
     getBlockchainLatestBlockNum(): number {
@@ -260,66 +99,108 @@ export class BlockDB {
         return prepped;
     }
 
-    private storeBlock(b: StoredBlock) {
+    private storeBlock(storedBlock: StoredBlock) {
         // Validate hasDebug flag vs traces presence
-        if (this.hasDebug && b.traces === undefined) {
+        if (this.hasDebug && storedBlock.traces === undefined) {
             throw new Error('hasDebug is true but StoredBlock.traces is undefined');
         }
-        if (!this.hasDebug && b.traces !== undefined) {
+        if (!this.hasDebug && storedBlock.traces !== undefined) {
             throw new Error('hasDebug is false but StoredBlock.traces is defined');
         }
 
-        const insertBlock = this.prepQuery('INSERT INTO blocks(id, data, traces) VALUES (?, ?, ?)');
-        const insertTx = this.prepQuery('INSERT INTO txs(block_id, tx_ix, data) VALUES (?, ?, ?)');
+        const insertBlock = this.prepQuery('INSERT INTO blocks(number, hash, data, codec) VALUES (?, ?, ?, ?)');
+        const insertTx = this.prepQuery('INSERT INTO txs(tx_num, hash, data, traces, codec) VALUES (?, ?, ?, ?, ?)');
 
-        const blockNumber = Number(b.block.number);
+        const blockNumber = Number(storedBlock.block.number);
+
+        // Create a block without transactions for storage
+        const blockWithoutTxs: Omit<RpcBlock, 'transactions'> = {
+            ...storedBlock.block,
+        };
+        delete (blockWithoutTxs as any).transactions;
 
         // Compress block data before storing
-        const blockData = encodeLazyBlock(b.block);
-        const compressedBlockData = lz4CompressSync(Buffer.from(blockData));
+        const blockJsonStr = JSON.stringify(blockWithoutTxs);
+        const compressedBlockData = zstdCompress(Buffer.from(blockJsonStr));
 
-        // Handle traces if hasDebug is true
-        let compressedTracesData: Buffer | null = null;
-        if (this.hasDebug && b.traces) {
-            // Encode all traces into a single buffer with one RLP call
-            const tracesData = encodeLazyTraces(b.traces);
-            compressedTracesData = lz4CompressSync(Buffer.from(tracesData));
-        }
+        // Extract block hash (remove '0x' prefix and convert to Buffer)
+        const blockHash = Buffer.from(storedBlock.block.hash.slice(2), 'hex');
 
-        insertBlock.run(blockNumber, compressedBlockData, compressedTracesData);
+        insertBlock.run(blockNumber, blockHash, compressedBlockData, 0);
 
-        for (let i = 0; i < b.block.transactions.length; ++i) {
-            const tx = b.block.transactions[i]!;
-            const receipt = b.receipts[tx.hash];
+        // Store transactions with their receipts and traces
+        for (let i = 0; i < storedBlock.block.transactions.length; ++i) {
+            const tx = storedBlock.block.transactions[i]!;
+            const receipt = storedBlock.receipts[tx.hash];
             if (!receipt) throw new Error(`Receipt not found for tx ${tx.hash}`);
 
-            // Compress transaction data before storing
-            const txData = encodeLazyTx(tx, receipt);
-            const compressedTxData = lz4CompressSync(Buffer.from(txData));
-            insertTx.run(blockNumber, i, compressedTxData);
+            // Calculate tx_num using the formula: (block_num << 16) | tx_idx
+            // Use BigInt to avoid 32-bit overflow in JavaScript bitwise operations
+            const tx_num = Number((BigInt(blockNumber) << 16n) | BigInt(i));
+
+            // Prepare transaction data
+            const txData: StoredTx = {
+                txNum: tx_num,//FIXME: coule be fetched from the column. double-storage here
+                tx: tx,
+                receipt: receipt,
+                blockTs: Number(storedBlock.block.timestamp)
+            };
+
+            // Compress transaction data
+            const txJsonStr = JSON.stringify(txData);
+            const compressedTxData = zstdCompress(Buffer.from(txJsonStr));
+
+            // Extract transaction hash (remove '0x' prefix and convert to Buffer)
+            const txHash = Buffer.from(tx.hash.slice(2), 'hex');
+
+            // Find the corresponding trace for this transaction
+            let compressedTraceData: Buffer | null = null;
+            if (this.hasDebug && storedBlock.traces) {
+                // Find trace by matching txHash
+                const traces = storedBlock.traces.filter(t => t.txHash === tx.hash);
+                if (traces.length === 0) {
+                    throw new Error(`hasDebug is true but no trace found for tx ${tx.hash}`);
+                }
+                if (traces.length > 1) {
+                    throw new Error(`Multiple traces found for tx ${tx.hash}: ${traces.length} traces`);
+                }
+                const trace = traces[0]!;
+                const traceJsonStr = JSON.stringify(trace);
+                compressedTraceData = zstdCompress(Buffer.from(traceJsonStr));
+            }
+
+            insertTx.run(tx_num, txHash, compressedTxData, compressedTraceData, 0);
         }
     }
 
     private initSchema() {
-        this.db.exec(`
-      CREATE TABLE IF NOT EXISTS blocks (
-        id     INTEGER PRIMARY KEY,
-        data   BLOB NOT NULL,
-        traces BLOB
-      ) WITHOUT ROWID;
-
-      CREATE TABLE IF NOT EXISTS txs (
-        block_id INTEGER NOT NULL,
-        tx_ix    INTEGER NOT NULL,
-        data     BLOB NOT NULL,
-        PRIMARY KEY (block_id, tx_ix)
-      ) WITHOUT ROWID;
-
-      CREATE TABLE IF NOT EXISTS kv_int (
-        key   TEXT PRIMARY KEY,
-        value INTEGER NOT NULL
-      ) WITHOUT ROWID;
-    `);
+        this.db.exec(`      
+          -- Blocks ----------------------------------------------------------
+          CREATE TABLE IF NOT EXISTS blocks (
+            number INTEGER PRIMARY KEY,          -- block height
+            hash   BLOB    NOT NULL UNIQUE,      -- 32-byte block hash
+            data   BLOB    NOT NULL,
+            codec  INTEGER NOT NULL DEFAULT 0
+          ) WITHOUT ROWID;
+      
+          -- Transactions ----------------------------------------------------
+          CREATE TABLE IF NOT EXISTS txs (
+            tx_num    INTEGER PRIMARY KEY,                           -- (block_num<<16)|tx_idx (6 bytes: 4 for block, 2 for tx)
+            hash      BLOB    NOT NULL UNIQUE,                       -- 32-byte tx hash
+            block_num INTEGER GENERATED ALWAYS AS (tx_num >> 16) VIRTUAL,
+            tx_idx    INTEGER GENERATED ALWAYS AS (tx_num & 0xFFFF) VIRTUAL,
+            data      BLOB    NOT NULL,
+            traces    BLOB,
+            codec     INTEGER NOT NULL DEFAULT 0
+          ) WITHOUT ROWID;
+      
+          -- KV store --------------------------------------------------------
+          CREATE TABLE IF NOT EXISTS kv_int (
+            key   TEXT PRIMARY KEY,
+            value INTEGER NOT NULL,
+            codec INTEGER NOT NULL DEFAULT 0
+          ) WITHOUT ROWID;
+        `);
     }
 
     private initPragmas(isReadonly: boolean) {
@@ -345,13 +226,155 @@ export class BlockDB {
     }
 
     getHasDebug(): number {
-        const select = this.prepQuery('SELECT value FROM kv_int WHERE key = ?');
-        const result = select.get('hasDebug') as { value: number } | undefined;
+        const select = this.prepQuery('SELECT value, codec FROM kv_int WHERE key = ?');
+        const result = select.get('hasDebug') as { value: number, codec: number } | undefined;
+        if (result && result.codec !== 0) throw new Error(`Unsupported codec ${result.codec} for hasDebug`);
         return result?.value ?? -1;
     }
 
     setHasDebug(hasDebug: boolean) {
-        const upsert = this.prepQuery('INSERT OR REPLACE INTO kv_int (key, value) VALUES (?, ?)');
-        upsert.run('hasDebug', hasDebug ? 1 : 0);
+        const upsert = this.prepQuery('INSERT OR REPLACE INTO kv_int (key, value, codec) VALUES (?, ?, ?)');
+        upsert.run('hasDebug', hasDebug ? 1 : 0, 0);
+    }
+
+    getTxBatch(greaterThanTxNum: number, limit: number, includeTraces: boolean): { txs: StoredTx[], traces: RpcTraceResult[] | undefined } {
+        const selectTxs = this.prepQuery(`
+            SELECT tx_num, data, traces, codec 
+            FROM txs 
+            WHERE tx_num > ? 
+            ORDER BY tx_num ASC 
+            LIMIT ?
+        `);
+
+        const rows = selectTxs.all(greaterThanTxNum, limit) as Array<{
+            tx_num: number;
+            data: Buffer;
+            traces: Buffer | null;
+            codec: number;
+        }>;
+
+        const txs: StoredTx[] = [];
+        const traces: RpcTraceResult[] = [];
+
+        for (const row of rows) {
+            if (row.codec !== 0) {
+                throw new Error(`Unsupported codec ${row.codec} for tx_num ${row.tx_num}`);
+            }
+
+            // Decompress and parse transaction data
+            const decompressedTxData = zstdDecompress(row.data);
+            const storedTx = JSON.parse(decompressedTxData.toString()) as StoredTx;
+            txs.push(storedTx);
+
+            // Handle traces if both debug is enabled AND traces are requested
+            if (this.hasDebug && includeTraces) {
+                if (!row.traces) {
+                    throw new Error(`hasDebug is true but no trace found for tx_num ${row.tx_num}`);
+                }
+                const decompressedTraceData = zstdDecompress(row.traces);
+                const trace = JSON.parse(decompressedTraceData.toString()) as RpcTraceResult;
+                traces.push(trace);
+            }
+        }
+
+        return {
+            txs,
+            traces: this.hasDebug && includeTraces ? traces : undefined
+        };
+    }
+
+    /**
+     * Fetches a complete block with all its transactions.
+     * This method is marked as "slow" because it requires multiple database queries
+     * and decompression operations to reassemble the full block structure.
+     * 
+     * @param blockIdentifier - Either a block number (number) or block hash (string with or without 0x prefix)
+     * @returns The complete RpcBlock with all transactions, or null if block not found
+     */
+    slow_getBlockWithTransactions(blockIdentifier: number | string): RpcBlock | null {
+        let blockNumber: number;
+        let blockRow: { number: number; hash: Buffer; data: Buffer; codec: number } | undefined;
+
+        if (typeof blockIdentifier === 'number') {
+            // Query by block number
+            blockNumber = blockIdentifier;
+            const selectByNumber = this.prepQuery('SELECT number, hash, data, codec FROM blocks WHERE number = ?');
+            blockRow = selectByNumber.get(blockNumber) as typeof blockRow;
+        } else {
+            // Query by block hash
+            // Remove 0x prefix if present and convert to Buffer
+            const hashStr = blockIdentifier.startsWith('0x') ? blockIdentifier.slice(2) : blockIdentifier;
+            if (hashStr.length !== 64) {
+                throw new Error(`Invalid block hash length: expected 64 hex chars, got ${hashStr.length}`);
+            }
+            const hashBuffer = Buffer.from(hashStr, 'hex');
+
+            const selectByHash = this.prepQuery('SELECT number, hash, data, codec FROM blocks WHERE hash = ?');
+            blockRow = selectByHash.get(hashBuffer) as typeof blockRow;
+
+            if (blockRow) {
+                blockNumber = blockRow.number;
+            } else {
+                // Block not found, return early
+                return null;
+            }
+        }
+
+        if (!blockRow) {
+            return null;
+        }
+
+        if (blockRow.codec !== 0) {
+            throw new Error(`Unsupported codec ${blockRow.codec} for block ${blockNumber}`);
+        }
+
+        // Decompress and parse the block data (without transactions)
+        const decompressedBlockData = zstdDecompress(blockRow.data);
+        const storedBlock = JSON.parse(decompressedBlockData.toString()) as Omit<RpcBlock, 'transactions'>;
+
+        // Now fetch all transactions for this block
+        // tx_num encoding: (block_num << 16) | tx_idx
+        // For block N, tx_num range is [N << 16, (N << 16) | 0xFFFF]
+        // This range covers all possible transaction indices (0 to 65535) for the block
+        // Use BigInt to avoid 32-bit overflow in JavaScript bitwise operations
+        const minTxNum = Number(BigInt(blockNumber) << 16n);
+        const maxTxNum = Number((BigInt(blockNumber) << 16n) | 0xFFFFn);
+
+        const selectTxs = this.prepQuery(`
+            SELECT tx_num, data, codec 
+            FROM txs 
+            WHERE tx_num >= ? AND tx_num <= ?
+            ORDER BY tx_num ASC
+        `);
+
+        const txRows = selectTxs.all(minTxNum, maxTxNum) as Array<{
+            tx_num: number;
+            data: Buffer;
+            codec: number;
+        }>;
+
+        // Reconstruct the transactions array
+        const transactions: RpcBlockTransaction[] = [];
+
+        for (const txRow of txRows) {
+            if (txRow.codec !== 0) {
+                throw new Error(`Unsupported codec ${txRow.codec} for tx_num ${txRow.tx_num}`);
+            }
+
+            // Decompress and parse transaction data
+            const decompressedTxData = zstdDecompress(txRow.data);
+            const storedTx = JSON.parse(decompressedTxData.toString()) as StoredTx;
+
+            // Extract the RpcBlockTransaction from StoredTx
+            transactions.push(storedTx.tx);
+        }
+
+        // Reassemble the complete RpcBlock
+        const fullBlock: RpcBlock = {
+            ...storedBlock,
+            transactions
+        };
+
+        return fullBlock;
     }
 }

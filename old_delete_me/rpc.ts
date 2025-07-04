@@ -1,6 +1,6 @@
 import SQLite from "better-sqlite3";
 import { BlockDB } from "../blockFetcher/BlockDB";
-import { CreateIndexerFunction, Indexer } from "./types";
+import { CreateIndexerFunction, Indexer } from "../lib/types";
 import { LazyTx, lazyTxToReceipt } from "../blockFetcher/lazy/LazyTx";
 import { LazyBlock } from "../blockFetcher/lazy/LazyBlock";
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";

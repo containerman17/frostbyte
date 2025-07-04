@@ -1,6 +1,6 @@
 process.env.NODE_ENV = "dev"
 process.env.RPC_URL = "http://localhost:3333/rpc" //Points to itself
-process.env.CHAIN_ID = "e2e_zerooneMainnet"
+process.env.CHAIN_ID = "e2e_numine"
 process.env.DATA_DIR = "./database"
 process.env.RPS = "1000"
 process.env.REQUEST_BATCH_SIZE = "100"
@@ -23,6 +23,11 @@ function findYamlFiles(dir: string): string[] {
 
     const files = fs.readdirSync(dir);
     for (const file of files) {
+        // Skip files and directories that start with _
+        if (file.startsWith('_')) {
+            continue;
+        }
+
         const fullPath = path.join(dir, file);
         const stat = fs.statSync(fullPath);
 
@@ -40,7 +45,7 @@ function findYamlFiles(dir: string): string[] {
 test('API Specs Validation', async (t) => {
     // Dynamic imports after env vars are set
     const { createApiServer } = await import('../server');
-    const { startIndexer } = await import('../indexer');
+    const { startAllIndexers } = await import('../indexer');
     const { CHAIN_ID, DATA_DIR, DEBUG_RPC_AVAILABLE } = await import('../config');
 
     // Setup database paths
@@ -52,15 +57,15 @@ test('API Specs Validation', async (t) => {
         throw new Error(`Blocks database not found at ${blocksDbPath}. Run the fetcher first.`);
     }
 
-    console.log('Running indexer until all blocks are processed...');
-    await startIndexer({
+    console.log('Running all indexers until all blocks are processed...');
+    await startAllIndexers({
         blocksDbPath,
         indexingDbPath,
         exitWhenDone: true
     });
 
     console.log('Starting API server...');
-    const apiServer = createApiServer(blocksDbPath, indexingDbPath);
+    const apiServer = await createApiServer(blocksDbPath, indexingDbPath);
     const server = apiServer.start(3333);
 
     try {

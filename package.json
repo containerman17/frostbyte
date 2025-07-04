@@ -30,7 +30,8 @@
     "p-queue": "^8.1.0",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3",
-    "yaml": "^2.8.0"
+    "yaml": "^2.8.0",
+    "zstd-napi": "^0.0.12"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
