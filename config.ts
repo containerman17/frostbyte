@@ -37,4 +37,3 @@ export const REQUEST_BATCH_SIZE = requiredEnvInt('REQUEST_BATCH_SIZE');
 export const MAX_CONCURRENT = requiredEnvInt('MAX_CONCURRENT');
 export const BLOCKS_PER_BATCH = requiredEnvInt('BLOCKS_PER_BATCH');
 export const DEBUG_RPC_AVAILABLE = requiredEnvString('DEBUG_RPC_AVAILABLE') === 'true';
-export const TEST_KILL_INDEXER_WHEN_DONE = optionalEnvString('TEST_KILL_INDEXER_WHEN_DONE', 'false') === 'true';

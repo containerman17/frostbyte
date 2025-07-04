@@ -40,7 +40,7 @@ function findYamlFiles(dir: string): string[] {
 test('API Specs Validation', async (t) => {
     // Dynamic imports after env vars are set
     const { createApiServer } = await import('../server');
-    const { startIndexer } = await import('../indexer');
+    const { startAllIndexers } = await import('../indexer');
     const { CHAIN_ID, DATA_DIR, DEBUG_RPC_AVAILABLE } = await import('../config');
 
     // Setup database paths
@@ -52,8 +52,8 @@ test('API Specs Validation', async (t) => {
         throw new Error(`Blocks database not found at ${blocksDbPath}. Run the fetcher first.`);
     }
 
-    console.log('Running indexer until all blocks are processed...');
-    await startIndexer({
+    console.log('Running all indexers until all blocks are processed...');
+    await startAllIndexers({
         blocksDbPath,
         indexingDbPath,
         exitWhenDone: true
