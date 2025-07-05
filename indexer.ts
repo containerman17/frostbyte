@@ -4,7 +4,7 @@ import { DEBUG_RPC_AVAILABLE } from './config';
 import { loadPlugins } from './lib/plugins';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getIntValue, initializeIndexingDB, setIntValue } from './lib/dbHelper';
+import { getIntValue, initializeIndexingDB, setIntValue, performIndexingPostCatchUpMaintenance, performIndexingPeriodicMaintenance } from './lib/dbHelper';
 import { IndexerModule } from './lib/types';
 import fs from 'node:fs';
 
@@ -111,6 +111,20 @@ async function startIndexer(
 
         if (!hadSomethingToIndex) {
             consecutiveEmptyBatches++;
+            
+            // Check if blocks database has caught up and trigger maintenance if needed
+            const blocksDbCaughtUp = blocksDb.getIsCaughtUp();
+            const indexingDbCaughtUp = getIntValue(indexingDb, 'is_caught_up', -1);
+            
+            if (blocksDbCaughtUp === 1 && indexingDbCaughtUp !== 1) {
+                // Blocks DB caught up but indexing DB hasn't - trigger post-catch-up maintenance
+                console.log(`[${name}] Blocks DB caught up! Triggering indexing DB post-catch-up maintenance...`);
+                performIndexingPostCatchUpMaintenance(indexingDb);
+            } else if (blocksDbCaughtUp === 1 && indexingDbCaughtUp === 1) {
+                // Both caught up - do periodic maintenance
+                performIndexingPeriodicMaintenance(indexingDb);
+            }
+            
             return;
         }
 
