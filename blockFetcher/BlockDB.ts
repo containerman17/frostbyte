@@ -476,4 +476,36 @@ export class BlockDB {
 
         return fullBlock;
     }
+
+    /**
+     * Fetches the receipt for a transaction by hash.
+     */
+    getTxReceipt(txHash: string): RpcTxReceipt | null {
+        const hashBuf = Buffer.from(txHash.replace(/^0x/, ''), 'hex');
+        const select = this.prepQuery('SELECT data, codec FROM txs WHERE hash = ?');
+        const row = select.get(hashBuf) as { data: Buffer; codec: number } | undefined;
+        if (!row) return null;
+        if (row.codec !== 0) {
+            throw new Error(`Unsupported codec ${row.codec} for tx ${txHash}`);
+        }
+        const decompressedTxData = zstdDecompress(row.data);
+        const storedTx = JSON.parse(decompressedTxData.toString()) as StoredTx;
+        return storedTx.receipt;
+    }
+
+    /**
+     * Fetches call traces for a block if available.
+     */
+    slow_getBlockTraces(blockNumber: number): RpcTraceResult[] {
+        const select = this.prepQuery('SELECT traces FROM txs WHERE block_num = ? ORDER BY tx_idx ASC');
+        const rows = select.all(blockNumber) as Array<{ traces: Buffer | null }>;
+        const traces: RpcTraceResult[] = [];
+        for (const row of rows) {
+            if (!row.traces) continue;
+            const decompressed = zstdDecompress(row.traces);
+            const trace = JSON.parse(decompressed.toString()) as RpcTraceResult;
+            traces.push(trace);
+        }
+        return traces;
+    }
 }
