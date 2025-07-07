@@ -1,7 +1,5 @@
 import type { IndexerModule } from "../lib/types";
-import { createRoute, z } from "@hono/zod-openapi";
 import { prepQueryCached } from "../lib/prep";
-
 
 // Constants
 const TELEPORTER_ADDRESS = "0x253b2784c75e510dd0ff1da844684a1ac0aa5fcf";
@@ -9,13 +7,6 @@ const TELEPORTER_ADDRESS = "0x253b2784c75e510dd0ff1da844684a1ac0aa5fcf";
 // Topic IDs for the events we're tracking
 const SEND_CROSS_CHAIN_MESSAGE_TOPIC = '0x2a211ad4a59ab9d003852404f9c57c690704ee755f3c79d2c2812ad32da99df8';
 const RECEIVE_CROSS_CHAIN_MESSAGE_TOPIC = '0x292ee90bbaf70b5d4936025e09d56ba08f3e421156b6a568cf3c2840d9343e34';
-
-// Response schema for teleporter metrics
-const TeleporterMetricResponseSchema = z.object({
-    result: z.object({
-        value: z.number()
-    })
-}).openapi('TeleporterMetricResponse');
 
 // Lifecycle hooks
 const wipe: IndexerModule["wipe"] = (db) => {
@@ -84,88 +75,76 @@ const handleTxBatch: IndexerModule["handleTxBatch"] = (db, _blocksDb, batch) => 
 
 // Optional HTTP surface
 const registerRoutes: IndexerModule["registerRoutes"] = (app, db) => {
-    // Route for source transaction count
-    const sourceRoute = createRoute({
-        method: 'get',
-        path: '/teleporterMetrics/teleporterSourceTxnCount',
-        responses: {
-            200: {
-                content: {
-                    'application/json': {
-                        schema: TeleporterMetricResponseSchema
-                    }
+    // JSON Schema for response
+    const responseSchema = {
+        type: 'object',
+        properties: {
+            result: {
+                type: 'object',
+                properties: {
+                    value: { type: 'number' }
                 },
-                description: 'Teleporter source transaction count'
+                required: ['value']
             }
         },
-        tags: ['Teleporter Metrics'],
-        summary: 'Get teleporter source transaction count',
-        description: 'Returns the total count of SendCrossChainMessage events'
-    });
+        required: ['result']
+    };
 
-    app.openapi(sourceRoute, (c) => {
+    // Route for source transaction count
+    app.get('/teleporterMetrics/teleporterSourceTxnCount', {
+        schema: {
+            description: 'Get teleporter source transaction count',
+            tags: ['Teleporter Metrics'],
+            summary: 'Returns the total count of SendCrossChainMessage events',
+            response: {
+                200: responseSchema
+            }
+        }
+    }, async (request, reply) => {
         const result = prepQueryCached(db,
             `SELECT value FROM teleporter_metrics WHERE metric_name = ?`
         ).get('source_txn_count') as { value: number } | undefined;
 
-        return c.json({
+        return {
             result: {
                 value: result?.value || 0
             }
-        });
+        };
     });
 
     // Route for destination transaction count
-    const destRoute = createRoute({
-        method: 'get',
-        path: '/teleporterMetrics/teleporterDestinationTxnCount',
-        responses: {
-            200: {
-                content: {
-                    'application/json': {
-                        schema: TeleporterMetricResponseSchema
-                    }
-                },
-                description: 'Teleporter destination transaction count'
+    app.get('/teleporterMetrics/teleporterDestinationTxnCount', {
+        schema: {
+            description: 'Get teleporter destination transaction count',
+            tags: ['Teleporter Metrics'],
+            summary: 'Returns the total count of ReceiveCrossChainMessage events',
+            response: {
+                200: responseSchema
             }
-        },
-        tags: ['Teleporter Metrics'],
-        summary: 'Get teleporter destination transaction count',
-        description: 'Returns the total count of ReceiveCrossChainMessage events'
-    });
-
-    app.openapi(destRoute, (c) => {
+        }
+    }, async (request, reply) => {
         const result = prepQueryCached(db,
             `SELECT value FROM teleporter_metrics WHERE metric_name = ?`
         ).get('destination_txn_count') as { value: number } | undefined;
 
-        return c.json({
+        return {
             result: {
                 value: result?.value || 0
             }
-        });
+        };
     });
 
     // Route for total transaction count
-    const totalRoute = createRoute({
-        method: 'get',
-        path: '/teleporterMetrics/teleporterTotalTxnCount',
-        responses: {
-            200: {
-                content: {
-                    'application/json': {
-                        schema: TeleporterMetricResponseSchema
-                    }
-                },
-                description: 'Teleporter total transaction count'
+    app.get('/teleporterMetrics/teleporterTotalTxnCount', {
+        schema: {
+            description: 'Get teleporter total transaction count',
+            tags: ['Teleporter Metrics'],
+            summary: 'Returns the total count of all teleporter transactions (source + destination)',
+            response: {
+                200: responseSchema
             }
-        },
-        tags: ['Teleporter Metrics'],
-        summary: 'Get teleporter total transaction count',
-        description: 'Returns the total count of all teleporter transactions (source + destination)'
-    });
-
-    app.openapi(totalRoute, (c) => {
+        }
+    }, async (request, reply) => {
         const sourceResult = prepQueryCached(db,
             `SELECT value FROM teleporter_metrics WHERE metric_name = ?`
         ).get('source_txn_count') as { value: number } | undefined;
@@ -177,11 +156,11 @@ const registerRoutes: IndexerModule["registerRoutes"] = (app, db) => {
         const sourceValue = sourceResult?.value || 0;
         const destValue = destResult?.value || 0;
 
-        return c.json({
+        return {
             result: {
                 value: sourceValue + destValue
             }
-        });
+        };
     });
 };
 
