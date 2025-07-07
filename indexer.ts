@@ -99,6 +99,8 @@ async function startIndexer(
     let hadSomethingToIndex = false;
     let consecutiveEmptyBatches = 0;
     const requiredEmptyBatches = 3;
+    let needsPostCatchUpMaintenance = false;
+    let needsPeriodicMaintenance = false;
 
     const runIndexing = indexingDb.transaction(() => {
         const lastIndexedTx = getIntValue(indexingDb, `lastIndexedTx_${name}`, -1);
@@ -111,20 +113,20 @@ async function startIndexer(
 
         if (!hadSomethingToIndex) {
             consecutiveEmptyBatches++;
-            
+
             // Check if blocks database has caught up and trigger maintenance if needed
             const blocksDbCaughtUp = blocksDb.getIsCaughtUp();
             const indexingDbCaughtUp = getIntValue(indexingDb, 'is_caught_up', -1);
-            
+
             if (blocksDbCaughtUp === 1 && indexingDbCaughtUp !== 1) {
-                // Blocks DB caught up but indexing DB hasn't - trigger post-catch-up maintenance
-                console.log(`[${name}] Blocks DB caught up! Triggering indexing DB post-catch-up maintenance...`);
-                performIndexingPostCatchUpMaintenance(indexingDb);
+                // Blocks DB caught up but indexing DB hasn't - flag for post-catch-up maintenance
+                console.log(`[${name}] Blocks DB caught up! Will trigger indexing DB post-catch-up maintenance...`);
+                needsPostCatchUpMaintenance = true;
             } else if (blocksDbCaughtUp === 1 && indexingDbCaughtUp === 1) {
-                // Both caught up - do periodic maintenance
-                performIndexingPeriodicMaintenance(indexingDb);
+                // Both caught up - flag for periodic maintenance
+                needsPeriodicMaintenance = true;
             }
-            
+
             return;
         }
 
@@ -148,6 +150,16 @@ async function startIndexer(
             // Run until we have consecutive empty batches
             while (consecutiveEmptyBatches < requiredEmptyBatches) {
                 runIndexing();
+
+                // Perform maintenance outside of transaction
+                if (needsPostCatchUpMaintenance) {
+                    performIndexingPostCatchUpMaintenance(indexingDb);
+                    needsPostCatchUpMaintenance = false;
+                } else if (needsPeriodicMaintenance) {
+                    performIndexingPeriodicMaintenance(indexingDb);
+                    needsPeriodicMaintenance = false;
+                }
+
                 if (!hadSomethingToIndex) {
                     await new Promise(resolve => setTimeout(resolve, 100));
                 }
@@ -157,6 +169,16 @@ async function startIndexer(
             // Run continuously
             while (true) {
                 runIndexing();
+
+                // Perform maintenance outside of transaction
+                if (needsPostCatchUpMaintenance) {
+                    performIndexingPostCatchUpMaintenance(indexingDb);
+                    needsPostCatchUpMaintenance = false;
+                } else if (needsPeriodicMaintenance) {
+                    performIndexingPeriodicMaintenance(indexingDb);
+                    needsPeriodicMaintenance = false;
+                }
+
                 if (!hadSomethingToIndex) {
                     await new Promise(resolve => setTimeout(resolve, 100));
                 }
