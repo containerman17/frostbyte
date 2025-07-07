@@ -2,6 +2,8 @@ import type { IndexerModule } from "../lib/types";
 import { normalizeTimestamp, TIME_INTERVAL_HOUR, TIME_INTERVAL_DAY, TIME_INTERVAL_WEEK, TIME_INTERVAL_MONTH, getPreviousTimestamp, getTimeIntervalFromString } from "../lib/dateUtils";
 import { extractTransferAddresses } from "./lib/evmUtils";
 import { prepQueryCached } from "../lib/prep";
+import { FastifyInstance } from "fastify";
+import { Database as SqliteDatabase } from "better-sqlite3";
 
 // Wipe function - reset all data
 const wipe: IndexerModule["wipe"] = (db) => {
@@ -116,19 +118,19 @@ const handleTxBatch: IndexerModule["handleTxBatch"] = (db, _blocksDb, batch) => 
 };
 
 // Register routes
-const registerRoutes: IndexerModule["registerRoutes"] = (app, db) => {
+const registerRoutes: IndexerModule["registerRoutes"] = (app: FastifyInstance, db: SqliteDatabase) => {
     // JSON Schemas
     const querySchema = {
         type: 'object',
         properties: {
             startTimestamp: { type: 'number' },
             endTimestamp: { type: 'number' },
-            timeInterval: { 
+            timeInterval: {
                 type: 'string',
                 enum: ['hour', 'day', 'week', 'month'],
                 default: 'hour'
             },
-            pageSize: { 
+            pageSize: {
                 type: 'number',
                 default: 10
             },
@@ -172,12 +174,12 @@ const registerRoutes: IndexerModule["registerRoutes"] = (app, db) => {
             }
         }
     }, async (request, reply) => {
-        const { 
-            startTimestamp, 
-            endTimestamp, 
-            timeInterval = 'hour', 
-            pageSize = 10, 
-            pageToken 
+        const {
+            startTimestamp,
+            endTimestamp,
+            timeInterval = 'hour',
+            pageSize = 10,
+            pageToken
         } = request.query as any;
 
         const timeIntervalId = getTimeIntervalFromString(timeInterval);
