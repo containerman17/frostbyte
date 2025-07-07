@@ -1,7 +1,5 @@
 import type { IndexerModule } from "../lib/types";
 import { normalizeTimestamp, TIME_INTERVAL_HOUR, TIME_INTERVAL_DAY, TIME_INTERVAL_WEEK, TIME_INTERVAL_MONTH, getPreviousTimestamp, getTimeIntervalFromString } from "../lib/dateUtils";
-import { createRoute } from "@hono/zod-openapi";
-import { z } from "@hono/zod-openapi";
 import { prepQueryCached } from "../lib/prep";
 
 // Wipe function - reset all data
@@ -74,53 +72,72 @@ const handleTxBatch: IndexerModule["handleTxBatch"] = (db, _blocksDb, batch) => 
 
 // Register routes
 const registerRoutes: IndexerModule["registerRoutes"] = (app, db) => {
-    // Query schema
-    const QuerySchema = z.object({
-        startTimestamp: z.coerce.number().optional(),
-        endTimestamp: z.coerce.number().optional(),
-        timeInterval: z.enum(['hour', 'day', 'week', 'month']).optional().default('hour'),
-        pageSize: z.coerce.number().optional().default(10),
-        pageToken: z.string().optional()
-    });
-
-    // Response schema
-    const ResponseSchema = z.object({
-        results: z.array(z.object({
-            timestamp: z.number(),
-            value: z.number()
-        })),
-        nextPageToken: z.string().optional()
-    });
-
-    const route = createRoute({
-        method: 'get',
-        path: '/metrics/cumulativeTxCount',
-        request: {
-            query: QuerySchema,
-        },
-        responses: {
-            200: {
-                content: {
-                    'application/json': {
-                        schema: ResponseSchema
-                    }
-                },
-                description: 'Cumulative transaction count metric data'
+    // JSON Schemas
+    const querySchema = {
+        type: 'object',
+        properties: {
+            startTimestamp: { type: 'number' },
+            endTimestamp: { type: 'number' },
+            timeInterval: { 
+                type: 'string',
+                enum: ['hour', 'day', 'week', 'month'],
+                default: 'hour'
             },
-            400: {
-                description: 'Bad request'
-            }
-        },
-        tags: ['Metrics'],
-        summary: 'Get cumulative transaction count data'
-    });
+            pageSize: { 
+                type: 'number',
+                default: 10
+            },
+            pageToken: { type: 'string' }
+        }
+    };
 
-    app.openapi(route, (c) => {
-        const { startTimestamp, endTimestamp, timeInterval = 'hour', pageSize = 10, pageToken } = c.req.valid('query');
+    const responseSchema = {
+        type: 'object',
+        properties: {
+            results: {
+                type: 'array',
+                items: {
+                    type: 'object',
+                    properties: {
+                        timestamp: { type: 'number' },
+                        value: { type: 'number' }
+                    },
+                    required: ['timestamp', 'value']
+                }
+            },
+            nextPageToken: { type: 'string' }
+        },
+        required: ['results']
+    };
+
+    app.get('/metrics/cumulativeTxCount', {
+        schema: {
+            description: 'Get cumulative transaction count data',
+            tags: ['Metrics'],
+            summary: 'Get cumulative transaction count data',
+            querystring: querySchema,
+            response: {
+                200: responseSchema,
+                400: {
+                    type: 'object',
+                    properties: {
+                        error: { type: 'string' }
+                    }
+                }
+            }
+        }
+    }, async (request, reply) => {
+        const { 
+            startTimestamp, 
+            endTimestamp, 
+            timeInterval = 'hour', 
+            pageSize = 10, 
+            pageToken 
+        } = request.query as any;
 
         const timeIntervalId = getTimeIntervalFromString(timeInterval);
         if (timeIntervalId === -1) {
-            return c.json({ error: `Invalid timeInterval: ${timeInterval}` }, 400);
+            return reply.code(400).send({ error: `Invalid timeInterval: ${timeInterval}` });
         }
 
         const validPageSize = Math.min(Math.max(pageSize, 1), 2160);
@@ -166,12 +183,12 @@ const registerRoutes: IndexerModule["registerRoutes"] = (app, db) => {
         // Backfill cumulative values
         const backfilled = backfillCumulativeResults(results, timeIntervalId, currentCumulativeValue, startTimestamp, endTimestamp);
 
-        return c.json({
+        return {
             results: backfilled.slice(0, validPageSize),
             nextPageToken: hasNextPage && backfilled.length > 0
                 ? backfilled[validPageSize - 1]?.timestamp.toString()
                 : undefined
-        });
+        };
     });
 };
 

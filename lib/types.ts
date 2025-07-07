@@ -1,5 +1,5 @@
 import { BlockDB } from "../blockFetcher/BlockDB";
-import { OpenAPIHono } from "@hono/zod-openapi";
+import { FastifyInstance } from "fastify";
 import SQLite from "better-sqlite3";
 import {
     RpcTraceResult,
@@ -24,5 +24,5 @@ export interface IndexerModule {
         batch: { txs: StoredTx[]; traces: RpcTraceResult[] | undefined },
     ) => void | Promise<void>;
 
-    registerRoutes: (app: OpenAPIHono, db: SQLite.Database, blocksDb: BlockDB) => void;
+    registerRoutes: (app: FastifyInstance, db: SQLite.Database, blocksDb: BlockDB) => void;
 }

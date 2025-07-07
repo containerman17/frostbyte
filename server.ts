@@ -1,7 +1,6 @@
 import { BlockDB } from './blockFetcher/BlockDB';
-import { OpenAPIHono } from '@hono/zod-openapi';
+import Fastify, { FastifyInstance } from 'fastify';
 import Database from 'better-sqlite3';
-import { serve } from '@hono/node-server';
 import { DEBUG_RPC_AVAILABLE } from './config';
 import { initializeIndexingDB } from './lib/dbHelper';
 import { loadPlugins } from './lib/plugins';
@@ -54,7 +53,37 @@ export async function createApiServer(blocksDbPath: string, indexingDbPath: stri
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
     const indexers = await loadPlugins([path.join(__dirname, 'pluginExamples')]);
 
-    const app = new OpenAPIHono();
+    const app: FastifyInstance = Fastify({ logger: false });
+
+    // Register swagger plugin
+    await app.register(import('@fastify/swagger'), {
+        openapi: {
+            info: {
+                title: 'Blockchain Indexer API',
+                description: 'API for querying blockchain data and metrics',
+                version: '1.0.0',
+            },
+            servers: [
+                {
+                    url: 'http://localhost:3000',
+                    description: 'Local development server'
+                }
+            ],
+            tags: [
+                { name: 'Metrics', description: 'Blockchain metrics endpoints' },
+                { name: 'RPC', description: 'JSON-RPC endpoints' },
+                { name: 'Teleporter Metrics', description: 'Teleporter specific metrics' }
+            ]
+        }
+    });
+
+    await app.register(import('@fastify/swagger-ui'), {
+        routePrefix: '/documentation',
+        uiConfig: {
+            docExpansion: 'list',
+            deepLinking: false
+        }
+    });
 
     // Keep track of opened databases for cleanup
     const openedDatabases: Database.Database[] = [];
@@ -77,35 +106,34 @@ export async function createApiServer(blocksDbPath: string, indexingDbPath: stri
         indexer.registerRoutes(app, indexerDb, blocksDb);
     }
 
-    // Add OpenAPI documentation endpoint
-    app.doc('/api/openapi.json', {
-        openapi: '3.0.0',
-        info: {
-            version: '1.0.0',
-            title: 'Blockchain Indexer API',
-            description: 'API for querying blockchain data and metrics'
-        },
-        servers: [
-            {
-                url: 'http://localhost:3000',
-                description: 'Local development server'
-            }
-        ]
+    // Add route to serve OpenAPI JSON
+    app.get('/api/openapi.json', async (request, reply) => {
+        return reply.send(app.swagger());
     });
 
-    app.get('/', (c) => c.html(`<a href="/docs">OpenAPI documentation</a>`));
-    app.get('/docs', (c) => c.html(docsPage));
+    // Add root route
+    app.get('/', async (request, reply) => {
+        return reply.type('text/html').send(`<a href="/docs">OpenAPI documentation</a>`);
+    });
+
+    // Add docs route
+    app.get('/docs', async (request, reply) => {
+        return reply.type('text/html').send(docsPage);
+    });
 
     return {
         app,
-        start: (port = 3000) => {
-            console.log(`Starting server on http://localhost:${port}/`);
-            return serve({
-                fetch: app.fetch,
-                port
-            });
+        start: async (port = 3000) => {
+            try {
+                await app.listen({ port, host: '0.0.0.0' });
+                console.log(`Starting server on http://localhost:${port}/`);
+            } catch (err) {
+                app.log.error(err);
+                process.exit(1);
+            }
         },
-        close: () => {
+        close: async () => {
+            await app.close();
             blocksDb.close();
             for (const db of openedDatabases) {
                 db.close();
