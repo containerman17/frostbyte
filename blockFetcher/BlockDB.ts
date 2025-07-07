@@ -23,11 +23,11 @@ export class BlockDB {
             readonly: isReadonly,
         });
         this.isReadonly = isReadonly;
-        this.initPragmas(isReadonly);
+        this.prepped = new Map();
         if (!isReadonly) {
             this.initSchema();
         }
-        this.prepped = new Map();
+        this.initPragmas(isReadonly);
 
         this.blockCompressor = new ZstdCompressor();
         this.blockDecompressor = new ZstdDecompressor();
@@ -89,6 +89,79 @@ export class BlockDB {
     setEvmChainId(chainId: number) {
         const upsert = this.prepQuery('INSERT OR REPLACE INTO kv_int (key, value, codec) VALUES (?, ?, ?)');
         upsert.run('evm_chain_id', chainId, 0);
+    }
+
+    getIsCaughtUp(): number {
+        const select = this.prepQuery('SELECT value FROM kv_int WHERE key = ?');
+        const result = select.get('is_caught_up') as { value: number } | undefined;
+        return result?.value ?? -1;
+    }
+
+    setIsCaughtUp(isCaughtUp: boolean) {
+        if (this.isReadonly) throw new Error('BlockDB is readonly');
+        const upsert = this.prepQuery('INSERT OR REPLACE INTO kv_int (key, value, codec) VALUES (?, ?, ?)');
+        upsert.run('is_caught_up', isCaughtUp ? 1 : 0, 0);
+    }
+
+    /**
+     * Checks if the chain has caught up by comparing stored blocks with blockchain latest block
+     */
+    checkAndUpdateCatchUpStatus(): boolean {
+        if (this.isReadonly) return false;
+        
+        const lastStoredBlock = this.getLastStoredBlockNumber();
+        const latestBlockchain = this.getBlockchainLatestBlockNum();
+        const isCaughtUp = lastStoredBlock >= latestBlockchain;
+        
+        if (isCaughtUp && this.getIsCaughtUp() !== 1) {
+            // Chain just caught up - trigger post-catch-up maintenance
+            console.log('BlockDB: Chain caught up! Triggering post-catch-up maintenance...');
+            this.setIsCaughtUp(true);
+            this.performPostCatchUpMaintenance();
+            return true;
+        }
+        
+        return false;
+    }
+
+    /**
+     * Step 2: Post-catch-up maintenance - flush & zero the big WAL, set limits
+     */
+    performPostCatchUpMaintenance(): void {
+        if (this.isReadonly) throw new Error('BlockDB is readonly');
+        
+        console.log('BlockDB: Starting post-catch-up maintenance...');
+        const start = performance.now();
+        
+        // Flush & zero the big WAL
+        this.db.pragma('wal_checkpoint(TRUNCATE)');
+        
+        // Set future WAL limits
+        this.db.pragma('journal_size_limit = 67108864'); // 64 MB
+        this.db.pragma('wal_autocheckpoint = 10000');    // merge every ~40 MB
+        
+        const end = performance.now();
+        console.log(`BlockDB: Post-catch-up maintenance completed in ${Math.round(end - start)}ms`);
+    }
+
+    /**
+     * Step 3: Periodic maintenance during idle gaps - reclaim space incrementally
+     */
+    performPeriodicMaintenance(): void {
+        if (this.isReadonly) throw new Error('BlockDB is readonly');
+        
+        const isCaughtUp = this.getIsCaughtUp();
+        if (isCaughtUp !== 1) return; // Only do this after catch-up
+        
+        const start = performance.now();
+        
+        // Reclaim ≤ 4 MB; finishes in ms
+        this.db.pragma('incremental_vacuum(1000)');
+        
+        const end = performance.now();
+        if (end - start > 10) { // Only log if it took more than 10ms
+            console.log(`BlockDB: Periodic maintenance completed in ${Math.round(end - start)}ms`);
+        }
     }
 
     getLastStoredBlockNumber(): number {
@@ -262,10 +335,30 @@ export class BlockDB {
         this.db.pragma('page_size = 8192');
 
         if (!isReadonly) {
+            // Step 1: Initial setup with incremental vacuum enabled
+            const isCaughtUp = this.getIsCaughtUp();
+            if (isCaughtUp === -1) {
+                // First time setup - enable incremental vacuum
+                this.db.pragma('auto_vacuum = INCREMENTAL');
+                this.db.pragma('VACUUM'); // builds the page map needed later
+                console.log('BlockDB: Initial setup with incremental vacuum enabled');
+            }
+
             // *** WRITER: fire-and-forget speed ***
             this.db.pragma('journal_mode      = WAL');         // enables concurrent readers
             this.db.pragma('synchronous       = OFF');         // lose at most one commit on crash
-            this.db.pragma('wal_autocheckpoint = 20000');      // ~80 MB before checkpoint pause
+            
+            // Set pragmas based on catch-up state
+            if (isCaughtUp === 1) {
+                // Step 2: Post-catch-up optimized settings
+                this.db.pragma('journal_size_limit = 67108864'); // 64 MB WAL limit
+                this.db.pragma('wal_autocheckpoint = 10000');    // merge every ~40 MB
+                console.log('BlockDB: Using post-catch-up optimized settings');
+            } else {
+                // Pre-catch-up: larger WAL for bulk writes
+                this.db.pragma('wal_autocheckpoint = 20000');    // ~80 MB before checkpoint pause
+            }
+            
             this.db.pragma('mmap_size         = 0');           // writer gains nothing from mmap
             this.db.pragma('cache_size        = -262144');     // 256 MiB page cache
             this.db.pragma('temp_store        = MEMORY');      // keep temp B-trees off disk
