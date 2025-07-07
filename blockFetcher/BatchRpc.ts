@@ -2,6 +2,7 @@ import { utils } from "@avalabs/avalanchejs";
 import PQueue from 'p-queue';
 import type * as EVMTypes from './evmTypes';
 import { DynamicBatchSizeManager } from './DynamicBatchSizeManager';
+import { RpcConfig } from "../config";
 
 // Define a type for the JSON-RPC request and response structures
 interface JsonRpcRequest {
@@ -31,40 +32,33 @@ export interface StoredBlock {
 export class BatchRpc {
     private rpcUrl: string;
     private queue: PQueue;
-    private batchSize: number;
+    private requestBatchSize: number;
     private dynamicBatchSizeManager: DynamicBatchSizeManager | null;
     private enableBatchSizeGrowth: boolean;
     private rpcSupportsDebug: boolean;
 
     constructor({
         rpcUrl,
-        batchSize,
-        maxConcurrent,
+        requestBatchSize,
+        maxConcurrentRequests,
         rps,
         rpcSupportsDebug,
         enableBatchSizeGrowth = false,
-    }: {
-        rpcUrl: string;
-        batchSize: number;
-        maxConcurrent: number;
-        rps: number;
-        rpcSupportsDebug: boolean;
-        enableBatchSizeGrowth?: boolean;
-    }) {
+    }: RpcConfig) {
         if (!rpcUrl) {
             throw new Error('RPC_URL is not set or empty');
         }
 
         this.rpcUrl = rpcUrl;
         this.queue = new PQueue({
-            concurrency: maxConcurrent,
+            concurrency: maxConcurrentRequests,
             interval: 1000, // 1 second
             intervalCap: rps
         });
-        this.batchSize = batchSize;
+        this.requestBatchSize = requestBatchSize;
         this.enableBatchSizeGrowth = enableBatchSizeGrowth;
         this.rpcSupportsDebug = rpcSupportsDebug;
-        this.dynamicBatchSizeManager = enableBatchSizeGrowth ? new DynamicBatchSizeManager(batchSize) : null;
+        this.dynamicBatchSizeManager = enableBatchSizeGrowth ? new DynamicBatchSizeManager(requestBatchSize) : null;
     }
 
     /**
@@ -179,7 +173,7 @@ export class BatchRpc {
         // Split into batches using either dynamic or fixed batch size
         const currentBatchSize = this.enableBatchSizeGrowth
             ? this.dynamicBatchSizeManager!.getCurrentBatchSize()
-            : this.batchSize;
+            : this.requestBatchSize;
 
         const batches: Array<Array<typeof indexedRequests[0]>> = [];
         for (let i = 0; i < indexedRequests.length; i += currentBatchSize) {
@@ -401,8 +395,8 @@ export class BatchRpc {
     public getBatchSizeStats(): { current: number; min: number; utilizationRatio: number } {
         if (!this.enableBatchSizeGrowth || !this.dynamicBatchSizeManager) {
             return {
-                current: this.batchSize,
-                min: this.batchSize,
+                current: this.requestBatchSize,
+                min: this.requestBatchSize,
                 utilizationRatio: 1.0
             };
         }

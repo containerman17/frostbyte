@@ -1,12 +1,12 @@
 import { BlockDB } from './blockFetcher/BlockDB';
 import Fastify, { FastifyInstance } from 'fastify';
 import Database from 'better-sqlite3';
-import { DEBUG_RPC_AVAILABLE } from './config';
 import { initializeIndexingDB } from './lib/dbHelper';
 import { loadPlugins } from './lib/plugins';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
+import { findIndexerDatabase } from './lib/dbPaths';
 
 const docsPage = `
 <!doctype html>
@@ -30,25 +30,8 @@ const docsPage = `
 </html>
 `;
 
-// Helper function to find the database for a specific indexer
-function findIndexerDatabase(baseDir: string, indexerName: string, indexerVersion: number): string | null {
-    const dbName = DEBUG_RPC_AVAILABLE
-        ? `indexing_${indexerName}_v${indexerVersion}.db`
-        : `indexing_${indexerName}_v${indexerVersion}_no_dbg.db`;
-    const dbPath = path.join(baseDir, dbName);
-
-    if (fs.existsSync(dbPath)) {
-        return dbPath;
-    }
-
-    return null;
-}
-
-export async function createApiServer(blocksDbPath: string, indexingDbPath: string) {
-    const blocksDb = new BlockDB({ path: blocksDbPath, isReadonly: true, hasDebug: DEBUG_RPC_AVAILABLE });
-
-    // indexingDbPath is now used as the base directory for indexer databases
-    const indexingDbBaseDir = path.dirname(indexingDbPath);
+export async function createApiServer(blocksDbPath: string, chainId: string, debugEnabled: boolean) {
+    const blocksDb = new BlockDB({ path: blocksDbPath, isReadonly: true, hasDebug: debugEnabled });
 
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
     const indexers = await loadPlugins([path.join(__dirname, 'pluginExamples')]);
@@ -90,7 +73,7 @@ export async function createApiServer(blocksDbPath: string, indexingDbPath: stri
 
     for (const indexer of indexers) {
         // Find the database for this indexer
-        const indexerDbPath = findIndexerDatabase(indexingDbBaseDir, indexer.name, indexer.version);
+        const indexerDbPath = findIndexerDatabase(chainId, indexer.name, indexer.version, debugEnabled);
 
         if (!indexerDbPath) {
             console.warn(`[API Server] Database not found for indexer ${indexer.name} v${indexer.version}. Skipping route registration.`);

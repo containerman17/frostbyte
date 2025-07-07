@@ -1,73 +1,30 @@
 import { BlockDB } from './blockFetcher/BlockDB';
 import Database from 'better-sqlite3';
-import { DEBUG_RPC_AVAILABLE } from './config';
 import { loadPlugins } from './lib/plugins';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getIntValue, initializeIndexingDB, setIntValue, performIndexingPostCatchUpMaintenance, performIndexingPeriodicMaintenance } from './lib/dbHelper';
 import { IndexerModule } from './lib/types';
 import fs from 'node:fs';
+import { getIndexerDbPath } from './lib/dbPaths';
 
 export interface IndexerOptions {
     blocksDbPath: string;
-    indexingDbPath: string;
+    chainId: string;
     exitWhenDone?: boolean;
+    debugEnabled: boolean;
 }
 
 export interface SingleIndexerOptions extends IndexerOptions {
     indexerName: string;
 }
 
-// Helper function to get the database path for a specific indexer
-function getIndexerDbPath(baseDir: string, indexerName: string, version: number): string {
-    const dbName = DEBUG_RPC_AVAILABLE
-        ? `indexing_${indexerName}_v${version}.db`
-        : `indexing_${indexerName}_v${version}_no_dbg.db`;
-    return path.join(baseDir, dbName);
-}
-
-// Helper function to delete old versions of an indexer's database
-async function deleteOldIndexerDatabases(baseDir: string, indexerName: string, currentVersion: number): Promise<void> {
-    const files = fs.readdirSync(baseDir);
-    const pattern = DEBUG_RPC_AVAILABLE
-        ? new RegExp(`^indexing_${indexerName}_v(\\d+)\\.db$`)
-        : new RegExp(`^indexing_${indexerName}_v(\\d+)_no_dbg\\.db$`);
-
-    for (const file of files) {
-        const match = file.match(pattern);
-        if (match) {
-            const version = parseInt(match[1]!, 10);
-            if (version !== currentVersion) {
-                const filePath = path.join(baseDir, file);
-                console.log(`[${indexerName}] Deleting old database version ${version}: ${file}`);
-                try {
-                    fs.unlinkSync(filePath);
-                    // Also delete associated journal files
-                    const journalPath = filePath + '-journal';
-                    if (fs.existsSync(journalPath)) {
-                        fs.unlinkSync(journalPath);
-                    }
-                    const walPath = filePath + '-wal';
-                    if (fs.existsSync(walPath)) {
-                        fs.unlinkSync(walPath);
-                    }
-                    const shmPath = filePath + '-shm';
-                    if (fs.existsSync(shmPath)) {
-                        fs.unlinkSync(shmPath);
-                    }
-                } catch (error) {
-                    console.error(`[${indexerName}] Failed to delete old database: ${error}`);
-                }
-            }
-        }
-    }
-}
-
 async function startIndexer(
     indexer: IndexerModule,
     blocksDb: BlockDB,
-    indexingDbBaseDir: string,
-    exitWhenDone: boolean
+    chainId: string,
+    exitWhenDone: boolean,
+    debugEnabled: boolean
 ): Promise<void> {
     console.log(`[${indexer.name}] Starting indexer v${indexer.version}`);
     const name = indexer.name;
@@ -77,11 +34,8 @@ async function startIndexer(
         throw new Error(`Indexer ${name} has invalid version ${version}`);
     }
 
-    // Delete old versions of this indexer's database
-    await deleteOldIndexerDatabases(indexingDbBaseDir, name, version);
-
-    // Get the path for this specific indexer and version
-    const indexerDbPath = getIndexerDbPath(indexingDbBaseDir, name, version);
+    // Get the path for this specific indexer and version (old versions will be deleted)
+    const indexerDbPath = getIndexerDbPath(chainId, name, version, debugEnabled);
 
     // Check if database exists
     const dbExists = fs.existsSync(indexerDbPath);
@@ -191,19 +145,16 @@ async function startIndexer(
 }
 
 export async function startAllIndexers(options: IndexerOptions): Promise<void> {
-    const { blocksDbPath, indexingDbPath, exitWhenDone = false } = options;
+    const { blocksDbPath, chainId, exitWhenDone = false, debugEnabled } = options;
 
-    const blocksDb = new BlockDB({ path: blocksDbPath, isReadonly: true, hasDebug: DEBUG_RPC_AVAILABLE });
-
-    // indexingDbPath is now used as the base directory for indexer databases
-    const indexingDbBaseDir = path.dirname(indexingDbPath);
+    const blocksDb = new BlockDB({ path: blocksDbPath, isReadonly: true, hasDebug: debugEnabled });
 
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
     const indexers = await loadPlugins([path.join(__dirname, 'pluginExamples')]);
 
     // Start all indexers in parallel
     const indexerPromises = indexers.map(indexer =>
-        startIndexer(indexer, blocksDb, indexingDbBaseDir, exitWhenDone)
+        startIndexer(indexer, blocksDb, chainId, exitWhenDone, debugEnabled)
     );
 
     await Promise.all(indexerPromises);
@@ -213,12 +164,9 @@ export async function startAllIndexers(options: IndexerOptions): Promise<void> {
 }
 
 export async function startSingleIndexer(options: SingleIndexerOptions): Promise<void> {
-    const { blocksDbPath, indexingDbPath, exitWhenDone = false, indexerName } = options;
+    const { blocksDbPath, chainId, exitWhenDone = false, indexerName, debugEnabled } = options;
 
-    const blocksDb = new BlockDB({ path: blocksDbPath, isReadonly: true, hasDebug: DEBUG_RPC_AVAILABLE });
-
-    // indexingDbPath is now used as the base directory for indexer databases
-    const indexingDbBaseDir = path.dirname(indexingDbPath);
+    const blocksDb = new BlockDB({ path: blocksDbPath, isReadonly: true, hasDebug: debugEnabled });
 
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
     const indexers = await loadPlugins([path.join(__dirname, 'pluginExamples')]);
@@ -230,7 +178,7 @@ export async function startSingleIndexer(options: SingleIndexerOptions): Promise
     }
 
     // Start the single indexer
-    await startIndexer(indexer, blocksDb, indexingDbBaseDir, exitWhenDone);
+    await startIndexer(indexer, blocksDb, chainId, exitWhenDone, debugEnabled);
 
     // Clean up
     blocksDb.close();
