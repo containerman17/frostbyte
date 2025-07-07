@@ -74,8 +74,16 @@ const handleTxBatch: IndexerModule["handleTxBatch"] = (db, _blocksDb, batch) => 
 };
 
 // Optional HTTP surface
-const registerRoutes: IndexerModule["registerRoutes"] = (app, db) => {
-    // JSON Schema for response
+const registerRoutes: IndexerModule["registerRoutes"] = (app, dbCtx) => {
+    // JSON Schemas
+    const paramsSchema = {
+        type: 'object',
+        properties: {
+            evmChainId: { type: 'number' }
+        },
+        required: ['evmChainId']
+    };
+
     const responseSchema = {
         type: 'object',
         properties: {
@@ -91,16 +99,20 @@ const registerRoutes: IndexerModule["registerRoutes"] = (app, db) => {
     };
 
     // Route for source transaction count
-    app.get('/teleporterMetrics/teleporterSourceTxnCount', {
+    app.get('/:evmChainId/teleporterMetrics/teleporterSourceTxnCount', {
         schema: {
             description: 'Get teleporter source transaction count',
             tags: ['Teleporter Metrics'],
             summary: 'Returns the total count of SendCrossChainMessage events',
+            params: paramsSchema,
             response: {
                 200: responseSchema
             }
         }
     }, async (request, reply) => {
+        const { evmChainId } = request.params as { evmChainId: number };
+        const db = dbCtx.indexerDbFactory(evmChainId);
+
         const result = prepQueryCached(db,
             `SELECT value FROM teleporter_metrics WHERE metric_name = ?`
         ).get('source_txn_count') as { value: number } | undefined;
@@ -113,16 +125,20 @@ const registerRoutes: IndexerModule["registerRoutes"] = (app, db) => {
     });
 
     // Route for destination transaction count
-    app.get('/teleporterMetrics/teleporterDestinationTxnCount', {
+    app.get('/:evmChainId/teleporterMetrics/teleporterDestinationTxnCount', {
         schema: {
             description: 'Get teleporter destination transaction count',
             tags: ['Teleporter Metrics'],
             summary: 'Returns the total count of ReceiveCrossChainMessage events',
+            params: paramsSchema,
             response: {
                 200: responseSchema
             }
         }
     }, async (request, reply) => {
+        const { evmChainId } = request.params as { evmChainId: number };
+        const db = dbCtx.indexerDbFactory(evmChainId);
+
         const result = prepQueryCached(db,
             `SELECT value FROM teleporter_metrics WHERE metric_name = ?`
         ).get('destination_txn_count') as { value: number } | undefined;
@@ -135,16 +151,20 @@ const registerRoutes: IndexerModule["registerRoutes"] = (app, db) => {
     });
 
     // Route for total transaction count
-    app.get('/teleporterMetrics/teleporterTotalTxnCount', {
+    app.get('/:evmChainId/teleporterMetrics/teleporterTotalTxnCount', {
         schema: {
             description: 'Get teleporter total transaction count',
             tags: ['Teleporter Metrics'],
             summary: 'Returns the total count of all teleporter transactions (source + destination)',
+            params: paramsSchema,
             response: {
                 200: responseSchema
             }
         }
     }, async (request, reply) => {
+        const { evmChainId } = request.params as { evmChainId: number };
+        const db = dbCtx.indexerDbFactory(evmChainId);
+
         const sourceResult = prepQueryCached(db,
             `SELECT value FROM teleporter_metrics WHERE metric_name = ?`
         ).get('source_txn_count') as { value: number } | undefined;

@@ -87,19 +87,27 @@ const handleTxBatch: IndexerModule["handleTxBatch"] = (db, _blocksDb, batch) => 
 };
 
 // Register routes
-const registerRoutes: IndexerModule["registerRoutes"] = (app, db) => {
+const registerRoutes: IndexerModule["registerRoutes"] = (app, dbCtx) => {
     // JSON Schemas
+    const paramsSchema = {
+        type: 'object',
+        properties: {
+            evmChainId: { type: 'number' }
+        },
+        required: ['evmChainId']
+    };
+
     const querySchema = {
         type: 'object',
         properties: {
             startTimestamp: { type: 'number' },
             endTimestamp: { type: 'number' },
-            timeInterval: { 
+            timeInterval: {
                 type: 'string',
                 enum: ['hour', 'day', 'week', 'month'],
                 default: 'hour'
             },
-            pageSize: { 
+            pageSize: {
                 type: 'number',
                 default: 10
             },
@@ -126,11 +134,12 @@ const registerRoutes: IndexerModule["registerRoutes"] = (app, db) => {
         required: ['results']
     };
 
-    app.get('/metrics/cumulativeContracts', {
+    app.get('/:evmChainId/metrics/cumulativeContracts', {
         schema: {
             description: 'Get cumulative contract deployment data',
             tags: ['Metrics'],
             summary: 'Get cumulative contract deployment data',
+            params: paramsSchema,
             querystring: querySchema,
             response: {
                 200: responseSchema,
@@ -143,12 +152,15 @@ const registerRoutes: IndexerModule["registerRoutes"] = (app, db) => {
             }
         }
     }, async (request, reply) => {
-        const { 
-            startTimestamp, 
-            endTimestamp, 
-            timeInterval = 'hour', 
-            pageSize = 10, 
-            pageToken 
+        const { evmChainId } = request.params as { evmChainId: number };
+        const db = dbCtx.indexerDbFactory(evmChainId);
+
+        const {
+            startTimestamp,
+            endTimestamp,
+            timeInterval = 'hour',
+            pageSize = 10,
+            pageToken
         } = request.query as any;
 
         const timeIntervalId = getTimeIntervalFromString(timeInterval);

@@ -96,8 +96,16 @@ function handleRpcRequest(blocksDb: BlockDB, request: RPCRequest): RPCResponse {
     return response;
 }
 
-const registerRoutes: IndexerModule['registerRoutes'] = (app, _db, blocksDb) => {
+const registerRoutes: IndexerModule['registerRoutes'] = (app, dbCtx) => {
     // JSON Schemas
+    const paramsSchema = {
+        type: 'object',
+        properties: {
+            evmChainId: { type: 'number' }
+        },
+        required: ['evmChainId']
+    };
+
     const rpcRequestSchema = {
         type: 'object',
         properties: {
@@ -159,17 +167,21 @@ const registerRoutes: IndexerModule['registerRoutes'] = (app, _db, blocksDb) => 
         ]
     };
 
-    app.post('/rpc', {
+    app.post('/:evmChainId/rpc', {
         schema: {
             description: 'JSON-RPC endpoint',
             tags: ['RPC'],
             summary: 'Handles JSON-RPC requests',
+            params: paramsSchema,
             body: batchRequestSchema,
             response: {
                 200: batchResponseSchema
             }
         }
     }, async (request, reply) => {
+        const { evmChainId } = request.params as { evmChainId: number };
+        const blocksDb = dbCtx.blocksDbFactory(evmChainId);
+
         const requests = request.body as RPCRequest | RPCRequest[];
 
         if (Array.isArray(requests)) {
