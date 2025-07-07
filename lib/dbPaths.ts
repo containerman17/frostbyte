@@ -1,6 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import { DATA_DIR } from '../config';
+import { getAvailableIndexers } from '../indexer';
 
 /**
  * Get the path for the blocks database
@@ -117,4 +118,38 @@ export function findIndexerDatabase(
     }
 
     return null;
-} 
+}
+
+
+export async function awaitIndexerDatabases(baseDir: string, debugEnabled: boolean, maxMs: number = 30 * 1000, intervalMs: number = 500) {
+    const startTime = Date.now();
+
+    // Get list of available indexers to know what databases to expect
+    const availableIndexers = await getAvailableIndexers();
+    console.log(`API worker waiting for ${availableIndexers.length} indexer databases...`);
+
+    while (true) {
+        // Check if directory exists
+        if (!fs.existsSync(baseDir)) {
+            fs.mkdirSync(baseDir, { recursive: true });
+        }
+
+        // Look for any indexer database files
+        const files = fs.readdirSync(baseDir);
+        const indexerDbPattern = debugEnabled
+            ? /^indexing_.*_v\d+\.db$/
+            : /^indexing_.*_v\d+_no_dbg\.db$/;
+
+        const indexerDbs = files.filter(f => indexerDbPattern.test(f));
+
+        if (indexerDbs.length > 0) {
+            console.log(`Found ${indexerDbs.length} indexer database(s): ${indexerDbs.join(', ')}`);
+            return;
+        }
+
+        await new Promise(resolve => setTimeout(resolve, intervalMs));
+        if (Date.now() - startTime > maxMs) {
+            throw new Error(`No indexer databases found in ${baseDir} after ${maxMs} ms`);
+        }
+    }
+}

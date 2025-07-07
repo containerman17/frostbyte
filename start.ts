@@ -7,11 +7,11 @@ import { BatchRpc } from './blockFetcher/BatchRpc';
 import { DATA_DIR, CHAIN_CONFIGS, getCurrentChainConfig } from './config';
 import { createApiServer } from './server';
 import { startSingleIndexer, getAvailableIndexers } from './indexer';
-import { getBlocksDbPath } from './lib/dbPaths';
+import { awaitIndexerDatabases, getBlocksDbPath } from './lib/dbPaths';
 
 if (cluster.isPrimary) {
     const roles = process.env['ROLES']?.split(',') || ['fetcher', 'api', 'indexer'];
-
+    let apiStarted = false;
     for (let config of CHAIN_CONFIGS) {
         // Spawn workers based on roles
         for (const role of roles) {
@@ -21,19 +21,27 @@ if (cluster.isPrimary) {
                 console.log(`Discovered ${availableIndexers.length} indexers: ${availableIndexers.join(', ')}`);
 
                 for (const indexerName of availableIndexers) {
-                    const worker = cluster.fork({
+                    cluster.fork({
                         ROLE: 'indexer',
                         INDEXER_NAME: indexerName,
                         CHAIN_ID: config.blockchainId,
                     });
                     console.log(`Spawned worker for indexer: ${indexerName}`);
                 }
-            } else {
+            } else if (role === 'fetcher') {
                 // Spawn single worker for other roles
                 cluster.fork({ ROLE: role, CHAIN_ID: config.blockchainId });
+            } else if (role === 'api') {
+                // API would be started as one process for all chains
+                if (!apiStarted) {
+                    cluster.fork({ ROLE: role });
+                    apiStarted = true;
+                }
             }
         }
     }
+
+
 
     // Kill all workers when parent exits
     const killAllWorkers = () => {
@@ -74,17 +82,12 @@ if (cluster.isPrimary) {
         const batchRpc = new BatchRpc(chainConfig.rpcConfig);
         startFetchingLoop(blocksDb, batchRpc, chainConfig.rpcConfig.blocksPerBatch);
     } else if (process.env['ROLE'] === 'api') {
-        //awaits both files as it is read only for both
-        const chainConfig = getCurrentChainConfig();
-        const blocksDbPath = getBlocksDbPath(chainConfig.blockchainId, chainConfig.rpcConfig.rpcSupportsDebug);
-        await awaitFileExists(blocksDbPath);
-
-        // Wait for at least one indexer database to exist
-        // The API server will handle missing databases gracefully
-        const indexingDbBaseDir = path.dirname(blocksDbPath);
-        await awaitIndexerDatabases(indexingDbBaseDir, chainConfig.rpcConfig.rpcSupportsDebug);
-
-        const apiServer = await createApiServer(blocksDbPath, chainConfig.blockchainId, chainConfig.rpcConfig.rpcSupportsDebug);
+        for (let config of CHAIN_CONFIGS) {
+            console.log(`Waiting for indexer databases for ${config.chainName}...`);
+            const dbDir = path.dirname(getBlocksDbPath(config.blockchainId, config.rpcConfig.rpcSupportsDebug));
+            awaitIndexerDatabases(dbDir, config.rpcConfig.rpcSupportsDebug);
+        }
+        const apiServer = await createApiServer(CHAIN_CONFIGS);
         apiServer.start(3000);
     } else if (process.env['ROLE'] === 'indexer') {
         const chainConfig = getCurrentChainConfig();
@@ -120,39 +123,6 @@ async function awaitFileExists(path: string, maxMs: number = 3 * 1000, intervalM
         await new Promise(resolve => setTimeout(resolve, intervalMs));
         if (Date.now() - startTime > maxMs) {
             throw new Error(`File ${path} did not exist after ${maxMs} ms`);
-        }
-    }
-}
-
-async function awaitIndexerDatabases(baseDir: string, debugEnabled: boolean, maxMs: number = 30 * 1000, intervalMs: number = 500) {
-    const startTime = Date.now();
-
-    // Get list of available indexers to know what databases to expect
-    const availableIndexers = await getAvailableIndexers();
-    console.log(`API worker waiting for ${availableIndexers.length} indexer databases...`);
-
-    while (true) {
-        // Check if directory exists
-        if (!fs.existsSync(baseDir)) {
-            fs.mkdirSync(baseDir, { recursive: true });
-        }
-
-        // Look for any indexer database files
-        const files = fs.readdirSync(baseDir);
-        const indexerDbPattern = debugEnabled
-            ? /^indexing_.*_v\d+\.db$/
-            : /^indexing_.*_v\d+_no_dbg\.db$/;
-
-        const indexerDbs = files.filter(f => indexerDbPattern.test(f));
-
-        if (indexerDbs.length > 0) {
-            console.log(`Found ${indexerDbs.length} indexer database(s): ${indexerDbs.join(', ')}`);
-            return;
-        }
-
-        await new Promise(resolve => setTimeout(resolve, intervalMs));
-        if (Date.now() - startTime > maxMs) {
-            throw new Error(`No indexer databases found in ${baseDir} after ${maxMs} ms`);
         }
     }
 }

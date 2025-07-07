@@ -1,12 +1,14 @@
 import { BlockDB } from './blockFetcher/BlockDB';
 import Fastify, { FastifyInstance } from 'fastify';
-import Database from 'better-sqlite3';
+import Sqlite3 from 'better-sqlite3';
 import { initializeIndexingDB } from './lib/dbHelper';
 import { loadPlugins } from './lib/plugins';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
-import { findIndexerDatabase } from './lib/dbPaths';
+import { findIndexerDatabase, getBlocksDbPath, getIndexerDbPath } from './lib/dbPaths';
+import { ChainConfig } from './config';
+import Database from 'better-sqlite3';
 
 const docsPage = `
 <!doctype html>
@@ -30,9 +32,7 @@ const docsPage = `
 </html>
 `;
 
-export async function createApiServer(blocksDbPath: string, chainId: string, debugEnabled: boolean) {
-    const blocksDb = new BlockDB({ path: blocksDbPath, isReadonly: true, hasDebug: debugEnabled });
-
+export async function createApiServer(chainConfigs: ChainConfig[]) {
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
     const indexers = await loadPlugins([path.join(__dirname, 'pluginExamples')]);
 
@@ -68,25 +68,43 @@ export async function createApiServer(blocksDbPath: string, chainId: string, deb
         }
     });
 
-    // Keep track of opened databases for cleanup
-    const openedDatabases: Database.Database[] = [];
+
+    const blocksDbCache = new Map<number, BlockDB>();
+    function getBlocksDb(evmChainId: number): BlockDB {
+        if (blocksDbCache.has(evmChainId)) {
+            return blocksDbCache.get(evmChainId)!;
+        }
+        const chainConfig = chainConfigs.find(c => c.evmChainId === evmChainId);
+        if (!chainConfig) {
+            throw new Error(`Chain config not found for evmChainId: ${evmChainId}`);
+        }
+        const blocksDb = new BlockDB({ path: getBlocksDbPath(chainConfig.blockchainId, chainConfig.rpcConfig.rpcSupportsDebug), isReadonly: true, hasDebug: chainConfig.rpcConfig.rpcSupportsDebug });
+        blocksDbCache.set(evmChainId, blocksDb);
+        return blocksDb;
+    }
+
+    const indexerDbCache = new Map<string, Sqlite3.Database>();
+    function getIndexerDb(evmChainId: number, indexerName: string, indexerVersion: number): Sqlite3.Database {
+        const key = `${evmChainId}-${indexerName}-${indexerVersion}`;
+        if (indexerDbCache.has(key)) {
+            return indexerDbCache.get(key)!;
+        }
+        const chainConfig = chainConfigs.find(c => c.evmChainId === evmChainId);
+        if (!chainConfig) {
+            throw new Error(`Chain config not found for evmChainId: ${evmChainId}`);
+        }
+        const indexerDbPath = getIndexerDbPath(chainConfig.blockchainId, indexerName, indexerVersion, chainConfig.rpcConfig.rpcSupportsDebug);
+        const indexingDb = new Database(indexerDbPath, { readonly: false });
+        initializeIndexingDB({ db: indexingDb, isReadonly: true });
+        indexerDbCache.set(key, indexingDb);
+        return indexingDb;
+    }
 
     for (const indexer of indexers) {
-        // Find the database for this indexer
-        const indexerDbPath = findIndexerDatabase(chainId, indexer.name, indexer.version, debugEnabled);
-
-        if (!indexerDbPath) {
-            console.warn(`[API Server] Database not found for indexer ${indexer.name} v${indexer.version}. Skipping route registration.`);
-            continue;
-        }
-
-        // Open the indexer's database
-        const indexerDb = new Database(indexerDbPath, { readonly: true });
-        initializeIndexingDB({ db: indexerDb, isReadonly: true });
-        openedDatabases.push(indexerDb);
-
-        console.log(`[API Server] Registering routes for ${indexer.name} using ${path.basename(indexerDbPath)}`);
-        indexer.registerRoutes(app, indexerDb, blocksDb);
+        indexer.registerRoutes(app, {
+            blocksDbFactory: getBlocksDb,
+            indexerDbFactory: (evmChainId: number) => getIndexerDb(evmChainId, indexer.name, indexer.version)
+        });
     }
 
     // Add route to serve OpenAPI JSON
@@ -117,10 +135,6 @@ export async function createApiServer(blocksDbPath: string, chainId: string, deb
         },
         close: async () => {
             await app.close();
-            blocksDb.close();
-            for (const db of openedDatabases) {
-                db.close();
-            }
         }
     };
 } 

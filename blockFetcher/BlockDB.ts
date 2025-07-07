@@ -365,16 +365,14 @@ export class BlockDB {
                 this.db.pragma('wal_autocheckpoint = 20000');    // ~80 MB before checkpoint pause
             }
 
-            this.db.pragma('mmap_size         = 0');           // writer gains nothing from mmap
-            this.db.pragma('cache_size        = -262144');     // 256 MiB page cache
+            // Use default cache size (2000 pages = ~16 MB with 8 KiB pages)
             this.db.pragma('temp_store        = MEMORY');      // keep temp B-trees off disk
         } else {
-            // *** READER: turbo random look-ups ***
+            // *** READER: minimal memory footprint ***
             this.db.pragma('query_only         = TRUE');       // hard-lock to read-only
             this.db.pragma('read_uncommitted   = TRUE');       // skip commit window wait
-            this.db.pragma('mmap_size          = 1099511627776'); // 1 TB
-            this.db.pragma('cache_size         = -1048576');   // 1 GiB page cache
-            this.db.pragma('busy_timeout       = 0');          // fail fast if writer stalls
+            // Use default cache size (2000 pages = ~16 MB with 8 KiB pages)
+            // this.db.pragma('busy_timeout       = 0');          // fail fast if writer stalls
         }
     }
 
