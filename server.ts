@@ -52,7 +52,7 @@ export async function createApiServer(blocksDbPath: string, indexingDbPath: stri
     const indexingDbBaseDir = path.dirname(indexingDbPath);
 
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
-    const indexers = await loadPlugins([path.join(__dirname, 'plugins')]);
+    const indexers = await loadPlugins([path.join(__dirname, 'pluginExamples')]);
 
     const app = new OpenAPIHono();
 

@@ -163,7 +163,7 @@ export async function startAllIndexers(options: IndexerOptions): Promise<void> {
     const indexingDbBaseDir = path.dirname(indexingDbPath);
 
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
-    const indexers = await loadPlugins([path.join(__dirname, 'plugins')]);
+    const indexers = await loadPlugins([path.join(__dirname, 'pluginExamples')]);
 
     // Start all indexers in parallel
     const indexerPromises = indexers.map(indexer =>
@@ -185,7 +185,7 @@ export async function startSingleIndexer(options: SingleIndexerOptions): Promise
     const indexingDbBaseDir = path.dirname(indexingDbPath);
 
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
-    const indexers = await loadPlugins([path.join(__dirname, 'plugins')]);
+    const indexers = await loadPlugins([path.join(__dirname, 'pluginExamples')]);
 
     // Find the specific indexer
     const indexer = indexers.find(i => i.name === indexerName);
@@ -202,6 +202,6 @@ export async function startSingleIndexer(options: SingleIndexerOptions): Promise
 
 export async function getAvailableIndexers(): Promise<string[]> {
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
-    const indexers = await loadPlugins([path.join(__dirname, 'plugins')]);
+    const indexers = await loadPlugins([path.join(__dirname, 'pluginExamples')]);
     return indexers.map(i => i.name);
 } 
