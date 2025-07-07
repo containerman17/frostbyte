@@ -118,8 +118,16 @@ const handleTxBatch: IndexerModule["handleTxBatch"] = (db, _blocksDb, batch) => 
 };
 
 // Register routes
-const registerRoutes: IndexerModule["registerRoutes"] = (app: FastifyInstance, db: SqliteDatabase) => {
+const registerRoutes: IndexerModule["registerRoutes"] = (app, dbCtx) => {
     // JSON Schemas
+    const paramsSchema = {
+        type: 'object',
+        properties: {
+            evmChainId: { type: 'number' }
+        },
+        required: ['evmChainId']
+    };
+
     const querySchema = {
         type: 'object',
         properties: {
@@ -157,11 +165,12 @@ const registerRoutes: IndexerModule["registerRoutes"] = (app: FastifyInstance, d
         required: ['results']
     };
 
-    app.get('/metrics/activeAddresses', {
+    app.get('/:evmChainId/metrics/activeAddresses', {
         schema: {
             description: 'Get active addresses data',
             tags: ['Metrics'],
             summary: 'Get active addresses metric data',
+            params: paramsSchema,
             querystring: querySchema,
             response: {
                 200: responseSchema,
@@ -174,6 +183,9 @@ const registerRoutes: IndexerModule["registerRoutes"] = (app: FastifyInstance, d
             }
         }
     }, async (request, reply) => {
+        const { evmChainId } = request.params as { evmChainId: number };
+        const db = dbCtx.indexerDbFactory(evmChainId);
+
         const {
             startTimestamp,
             endTimestamp,

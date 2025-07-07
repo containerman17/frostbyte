@@ -108,11 +108,11 @@ export class BlockDB {
      */
     checkAndUpdateCatchUpStatus(): boolean {
         if (this.isReadonly) return false;
-        
+
         const lastStoredBlock = this.getLastStoredBlockNumber();
         const latestBlockchain = this.getBlockchainLatestBlockNum();
         const isCaughtUp = lastStoredBlock >= latestBlockchain;
-        
+
         if (isCaughtUp && this.getIsCaughtUp() !== 1) {
             // Chain just caught up - trigger post-catch-up maintenance
             console.log('BlockDB: Chain caught up! Triggering post-catch-up maintenance...');
@@ -120,7 +120,7 @@ export class BlockDB {
             this.performPostCatchUpMaintenance();
             return true;
         }
-        
+
         return false;
     }
 
@@ -129,17 +129,17 @@ export class BlockDB {
      */
     performPostCatchUpMaintenance(): void {
         if (this.isReadonly) throw new Error('BlockDB is readonly');
-        
+
         console.log('BlockDB: Starting post-catch-up maintenance...');
         const start = performance.now();
-        
+
         // Flush & zero the big WAL
         this.db.pragma('wal_checkpoint(TRUNCATE)');
-        
+
         // Set future WAL limits
         this.db.pragma('journal_size_limit = 67108864'); // 64 MB
         this.db.pragma('wal_autocheckpoint = 10000');    // merge every ~40 MB
-        
+
         const end = performance.now();
         console.log(`BlockDB: Post-catch-up maintenance completed in ${Math.round(end - start)}ms`);
     }
@@ -149,15 +149,15 @@ export class BlockDB {
      */
     performPeriodicMaintenance(): void {
         if (this.isReadonly) throw new Error('BlockDB is readonly');
-        
+
         const isCaughtUp = this.getIsCaughtUp();
         if (isCaughtUp !== 1) return; // Only do this after catch-up
-        
+
         const start = performance.now();
-        
+
         // Reclaim ≤ 4 MB; finishes in ms
         this.db.pragma('incremental_vacuum(1000)');
-        
+
         const end = performance.now();
         if (end - start > 10) { // Only log if it took more than 10ms
             console.log(`BlockDB: Periodic maintenance completed in ${Math.round(end - start)}ms`);
@@ -323,6 +323,12 @@ export class BlockDB {
             codec INTEGER NOT NULL DEFAULT 0
           ) WITHOUT ROWID;
 
+          CREATE TABLE IF NOT EXISTS kv_string (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            codec INTEGER NOT NULL DEFAULT 0
+          ) WITHOUT ROWID;
+
           CREATE TABLE IF NOT EXISTS dictionaries (
             name TEXT PRIMARY KEY,
             dict BLOB NOT NULL
@@ -347,7 +353,7 @@ export class BlockDB {
             // *** WRITER: fire-and-forget speed ***
             this.db.pragma('journal_mode      = WAL');         // enables concurrent readers
             this.db.pragma('synchronous       = OFF');         // lose at most one commit on crash
-            
+
             // Set pragmas based on catch-up state
             if (isCaughtUp === 1) {
                 // Step 2: Post-catch-up optimized settings
@@ -358,17 +364,15 @@ export class BlockDB {
                 // Pre-catch-up: larger WAL for bulk writes
                 this.db.pragma('wal_autocheckpoint = 20000');    // ~80 MB before checkpoint pause
             }
-            
-            this.db.pragma('mmap_size         = 0');           // writer gains nothing from mmap
-            this.db.pragma('cache_size        = -262144');     // 256 MiB page cache
+
+            // Use default cache size (2000 pages = ~16 MB with 8 KiB pages)
             this.db.pragma('temp_store        = MEMORY');      // keep temp B-trees off disk
         } else {
-            // *** READER: turbo random look-ups ***
+            // *** READER: minimal memory footprint ***
             this.db.pragma('query_only         = TRUE');       // hard-lock to read-only
             this.db.pragma('read_uncommitted   = TRUE');       // skip commit window wait
-            this.db.pragma('mmap_size          = 1099511627776'); // 1 TB
-            this.db.pragma('cache_size         = -1048576');   // 1 GiB page cache
-            this.db.pragma('busy_timeout       = 0');          // fail fast if writer stalls
+            // Use default cache size (2000 pages = ~16 MB with 8 KiB pages)
+            // this.db.pragma('busy_timeout       = 0');          // fail fast if writer stalls
         }
     }
 

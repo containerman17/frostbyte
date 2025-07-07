@@ -6,6 +6,11 @@ import {
     StoredTx
 } from "../blockFetcher/evmTypes";
 
+export interface RegisterRoutesContext {
+    blocksDbFactory: (evmChainId: number) => BlockDB;
+    indexerDbFactory: (evmChainId: number) => SQLite.Database;
+}
+
 /** All plugin files must export these symbols. */
 export interface IndexerModule {
     name: string;          // unique slug, no whitespaces only a-z0-9-_
@@ -24,5 +29,5 @@ export interface IndexerModule {
         batch: { txs: StoredTx[]; traces: RpcTraceResult[] | undefined },
     ) => void | Promise<void>;
 
-    registerRoutes: (app: FastifyInstance, db: SQLite.Database, blocksDb: BlockDB) => void;
+    registerRoutes: (app: FastifyInstance, dbCtx: RegisterRoutesContext) => void;
 }

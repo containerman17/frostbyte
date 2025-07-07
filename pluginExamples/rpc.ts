@@ -2,7 +2,7 @@ import type { IndexerModule } from "../lib/types";
 import { BlockDB } from "../blockFetcher/BlockDB";
 import { RpcBlock } from "../blockFetcher/evmTypes";
 import { utils } from "@avalabs/avalanchejs";
-import { CHAIN_ID } from "../config";
+import { getCurrentChainConfig } from "../config";
 
 // JSON-RPC types
 interface RPCRequest {
@@ -80,7 +80,7 @@ function handleRpcRequest(blocksDb: BlockDB, request: RPCRequest): RPCResponse {
                 const warpAddr = '0x0200000000000000000000000000000000000005';
                 const getBlockchainIDSig = '0x4213cf78';
                 if (tag === 'latest' && callObj && callObj.to?.toLowerCase() === warpAddr && callObj.data === getBlockchainIDSig) {
-                    const bytes = utils.base58check.decode(CHAIN_ID);
+                    const bytes = utils.base58check.decode(getCurrentChainConfig().blockchainId);
                     response.result = '0x' + Buffer.from(bytes).toString('hex');
                 } else {
                     response.error = { code: -32601, message: 'Unsupported eth_call' };
@@ -96,17 +96,25 @@ function handleRpcRequest(blocksDb: BlockDB, request: RPCRequest): RPCResponse {
     return response;
 }
 
-const registerRoutes: IndexerModule['registerRoutes'] = (app, _db, blocksDb) => {
+const registerRoutes: IndexerModule['registerRoutes'] = (app, dbCtx) => {
     // JSON Schemas
+    const paramsSchema = {
+        type: 'object',
+        properties: {
+            evmChainId: { type: 'number' }
+        },
+        required: ['evmChainId']
+    };
+
     const rpcRequestSchema = {
         type: 'object',
         properties: {
             method: { type: 'string' },
-            params: { 
+            params: {
                 type: 'array',
                 items: {}
             },
-            id: { 
+            id: {
                 oneOf: [
                     { type: 'string' },
                     { type: 'number' }
@@ -159,19 +167,23 @@ const registerRoutes: IndexerModule['registerRoutes'] = (app, _db, blocksDb) => 
         ]
     };
 
-    app.post('/rpc', {
+    app.post('/:evmChainId/rpc', {
         schema: {
             description: 'JSON-RPC endpoint',
             tags: ['RPC'],
             summary: 'Handles JSON-RPC requests',
+            params: paramsSchema,
             body: batchRequestSchema,
             response: {
                 200: batchResponseSchema
             }
         }
     }, async (request, reply) => {
+        const { evmChainId } = request.params as { evmChainId: number };
+        const blocksDb = dbCtx.blocksDbFactory(evmChainId);
+
         const requests = request.body as RPCRequest | RPCRequest[];
-        
+
         if (Array.isArray(requests)) {
             const responses = requests.map(req => handleRpcRequest(blocksDb, req));
             return responses;
@@ -186,9 +198,9 @@ const module: IndexerModule = {
     name: 'rpc',
     version: 0,
     usesTraces: false,
-    wipe: () => {},
-    initialize: () => {},
-    handleTxBatch: () => {},
+    wipe: () => { },
+    initialize: () => { },
+    handleTxBatch: () => { },
     registerRoutes
 };
 
