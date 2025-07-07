@@ -1,6 +1,6 @@
 import type { IndexerModule } from "../lib/types";
 import { normalizeTimestamp, TIME_INTERVAL_HOUR, TIME_INTERVAL_DAY, TIME_INTERVAL_WEEK, TIME_INTERVAL_MONTH, getPreviousTimestamp, getTimeIntervalFromString } from "../lib/dateUtils";
-import { countCreateCallsInTrace } from "../lib/evmUtils";
+import { countCreateCallsInTrace } from "./lib/evmUtils";
 import { createRoute } from "@hono/zod-openapi";
 import { z } from "@hono/zod-openapi";
 import { prepQueryCached } from "../lib/prep";

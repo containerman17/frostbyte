@@ -1,21 +1,21 @@
 import type { IndexerModule } from "../lib/types";
 import { normalizeTimestamp, TIME_INTERVAL_HOUR, TIME_INTERVAL_DAY, TIME_INTERVAL_WEEK, TIME_INTERVAL_MONTH, getPreviousTimestamp, getTimeIntervalFromString } from "../lib/dateUtils";
-import { extractTransferAddresses } from "../lib/evmUtils";
+import { extractTransferAddresses } from "./lib/evmUtils";
 import { createRoute } from "@hono/zod-openapi";
 import { z } from "@hono/zod-openapi";
 import { prepQueryCached } from "../lib/prep";
 
 // Wipe function - reset all data
 const wipe: IndexerModule["wipe"] = (db) => {
-    db.exec(`DROP TABLE IF EXISTS active_senders`);
-    db.exec(`DROP TABLE IF EXISTS active_senders_count`);
+    db.exec(`DROP TABLE IF EXISTS active_addresses`);
+    db.exec(`DROP TABLE IF EXISTS active_addresses_count`);
 };
 
 // Initialize function - set up tables
 const initialize: IndexerModule["initialize"] = (db) => {
-    // Table to track unique senders per time period
+    // Table to track unique addresses per time period
     db.exec(`
-        CREATE TABLE IF NOT EXISTS active_senders (
+        CREATE TABLE IF NOT EXISTS active_addresses (
             time_interval INTEGER NOT NULL,
             period_timestamp INTEGER NOT NULL,
             address TEXT NOT NULL,
@@ -25,13 +25,13 @@ const initialize: IndexerModule["initialize"] = (db) => {
 
     // Index for efficient counting
     db.exec(`
-        CREATE INDEX IF NOT EXISTS idx_active_senders_period 
-        ON active_senders(time_interval, period_timestamp)
+        CREATE INDEX IF NOT EXISTS idx_active_addresses_period 
+        ON active_addresses(time_interval, period_timestamp)
     `);
 
     // Pre-aggregated counts for performance
     db.exec(`
-        CREATE TABLE IF NOT EXISTS active_senders_count (
+        CREATE TABLE IF NOT EXISTS active_addresses_count (
             time_interval INTEGER NOT NULL,
             period_timestamp INTEGER NOT NULL,
             count INTEGER NOT NULL,
@@ -44,7 +44,7 @@ const initialize: IndexerModule["initialize"] = (db) => {
 const handleTxBatch: IndexerModule["handleTxBatch"] = (db, _blocksDb, batch) => {
     // Temporary table for batch operations
     db.exec(`
-        CREATE TEMP TABLE IF NOT EXISTS temp_senders (
+        CREATE TEMP TABLE IF NOT EXISTS temp_addresses (
             time_interval INTEGER,
             period_timestamp INTEGER,
             address TEXT,
@@ -52,25 +52,29 @@ const handleTxBatch: IndexerModule["handleTxBatch"] = (db, _blocksDb, batch) => 
         ) WITHOUT ROWID
     `);
 
+
     const tempStmt = prepQueryCached(db, `
-        INSERT OR IGNORE INTO temp_senders (time_interval, period_timestamp, address) 
+        INSERT OR IGNORE INTO temp_addresses (time_interval, period_timestamp, address) 
         VALUES (?, ?, ?)
     `);
 
-    // Collect senders per time period
-    const periodSenders = new Map<string, Set<string>>();
+    // Collect addresses per time period
+    const periodAddresses = new Map<string, Set<string>>();
 
     for (const tx of batch.txs) {
         const blockTimestamp = tx.blockTs;
 
-        // Collect transaction sender
-        const senders = new Set<string>();
-        senders.add(tx.tx.from);
+        // Collect all addresses (from and to)
+        const addresses = new Set<string>();
+        addresses.add(tx.tx.from);
+        if (tx.tx.to) {
+            addresses.add(tx.tx.to);
+        }
 
-        // Extract Transfer event senders
+        // Extract Transfer event addresses
         const transferAddresses = extractTransferAddresses(tx.receipt.logs);
-        for (const sender of transferAddresses.senders) {
-            senders.add(sender);
+        for (const address of transferAddresses.addresses) {
+            addresses.add(address);
         }
 
         // Add to period maps
@@ -78,39 +82,39 @@ const handleTxBatch: IndexerModule["handleTxBatch"] = (db, _blocksDb, batch) => 
             const periodTimestamp = normalizeTimestamp(blockTimestamp, timeInterval);
             const key = `${timeInterval},${periodTimestamp}`;
 
-            if (!periodSenders.has(key)) {
-                periodSenders.set(key, new Set<string>());
+            if (!periodAddresses.has(key)) {
+                periodAddresses.set(key, new Set<string>());
             }
 
-            for (const sender of senders) {
-                periodSenders.get(key)!.add(sender);
-                tempStmt.run(timeInterval, periodTimestamp, sender);
+            for (const address of addresses) {
+                periodAddresses.get(key)!.add(address);
+                tempStmt.run(timeInterval, periodTimestamp, address);
             }
         }
     }
 
     // Bulk insert from temp table to main table
     db.exec(`
-        INSERT OR IGNORE INTO active_senders (time_interval, period_timestamp, address)
-        SELECT time_interval, period_timestamp, address FROM temp_senders
+        INSERT OR IGNORE INTO active_addresses (time_interval, period_timestamp, address)
+        SELECT time_interval, period_timestamp, address FROM temp_addresses
     `);
 
     // Update counts
     db.exec(`
-        INSERT OR REPLACE INTO active_senders_count (time_interval, period_timestamp, count)
+        INSERT OR REPLACE INTO active_addresses_count (time_interval, period_timestamp, count)
         SELECT 
             time_interval,
             period_timestamp,
             COUNT(DISTINCT address)
-        FROM active_senders
+        FROM active_addresses
         WHERE (time_interval, period_timestamp) IN (
-            SELECT DISTINCT time_interval, period_timestamp FROM temp_senders
+            SELECT DISTINCT time_interval, period_timestamp FROM temp_addresses
         )
         GROUP BY time_interval, period_timestamp
     `);
 
     // Clean up temp table
-    db.exec(`DROP TABLE temp_senders`);
+    db.exec(`DROP TABLE temp_addresses`);
 };
 
 // Register routes
@@ -135,7 +139,7 @@ const registerRoutes: IndexerModule["registerRoutes"] = (app, db) => {
 
     const route = createRoute({
         method: 'get',
-        path: '/metrics/activeSenders',
+        path: '/metrics/activeAddresses',
         request: {
             query: QuerySchema,
         },
@@ -146,14 +150,14 @@ const registerRoutes: IndexerModule["registerRoutes"] = (app, db) => {
                         schema: ResponseSchema
                     }
                 },
-                description: 'Active senders metric data'
+                description: 'Active addresses metric data'
             },
             400: {
                 description: 'Bad request'
             }
         },
         tags: ['Metrics'],
-        summary: 'Get active senders data'
+        summary: 'Get active addresses data'
     });
 
     app.openapi(route, (c) => {
@@ -167,7 +171,7 @@ const registerRoutes: IndexerModule["registerRoutes"] = (app, db) => {
         const validPageSize = Math.min(Math.max(pageSize, 1), 2160);
 
         // Build query
-        let query = `SELECT period_timestamp as timestamp, count as value FROM active_senders_count WHERE time_interval = ?`;
+        let query = `SELECT period_timestamp as timestamp, count as value FROM active_addresses_count WHERE time_interval = ?`;
         const params: any[] = [timeIntervalId];
 
         if (startTimestamp) {
@@ -238,7 +242,7 @@ function backfillResults(
 }
 
 const module: IndexerModule = {
-    name: "activeSenders",
+    name: "activeAddresses",
     version: 1,
     usesTraces: false,
     wipe,
