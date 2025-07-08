@@ -10,12 +10,15 @@ export type { RpcBlock, RpcBlockTransaction, RpcTxReceipt, RpcTraceResult, Store
 export type { Database } from 'better-sqlite3';
 export type { FastifyInstance } from 'fastify';
 
+export { prepQueryCached } from './lib/prep';
 // BlockDB is passed to handleTxBatch
 export type { BlockDB } from './blockFetcher/BlockDB';
 
 import { IndexerModule } from './lib/types';
 import rpcModule from './std/rpc';
+import chainsModule from './std/chains';
 
 export namespace StandardIndexers {
     export const RPCIndexer: IndexerModule = rpcModule;
+    export const ChainsIndexer: IndexerModule = chainsModule;
 }

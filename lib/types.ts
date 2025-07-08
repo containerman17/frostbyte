@@ -11,6 +11,7 @@ export interface RegisterRoutesContext {
     blocksDbFactory: (evmChainId: number) => BlockDB;
     indexerDbFactory: (evmChainId: number) => SQLite.Database;
     getChainConfig: (evmChainId: number) => ChainConfig;
+    getAllChainConfigs: () => ChainConfig[];
 }
 
 /** All plugin files must export these symbols. */

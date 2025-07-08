@@ -104,12 +104,16 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
         }
         return chainConfig;
     }
+    function getAllChainConfigs(): ChainConfig[] {
+        return [...chainConfigs];
+    }
 
     for (const indexer of indexers) {
         indexer.registerRoutes(app, {
             blocksDbFactory: getBlocksDb,
             indexerDbFactory: (evmChainId: number) => getIndexerDb(evmChainId, indexer.name, indexer.version),
-            getChainConfig: getChainConfig
+            getChainConfig: getChainConfig,
+            getAllChainConfigs: getAllChainConfigs
         });
     }
 

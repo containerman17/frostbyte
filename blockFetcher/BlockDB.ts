@@ -171,11 +171,29 @@ export class BlockDB {
         return result2;
     }
 
+    getTxCount(): number {
+        const select = this.prepQuery('SELECT value FROM kv_int WHERE key = ?');
+        const result = select.get('tx_count') as { value: number } | undefined;
+        return result?.value ?? 0;
+    }
+
+    private setTxCount(count: number) {
+        if (this.isReadonly) throw new Error('BlockDB is readonly');
+        const upsert = this.prepQuery('INSERT OR REPLACE INTO kv_int (key, value, codec) VALUES (?, ?, ?)');
+        upsert.run('tx_count', count, 0);
+    }
+
     storeBlocks(batch: StoredBlock[]) {
         if (this.isReadonly) throw new Error('BlockDB is readonly');
         if (batch.length === 0) return;
 
         let lastStoredBlockNum = this.getLastStoredBlockNumber();
+        let totalTxCount = 0;
+
+        // Calculate total transactions in the batch
+        for (const block of batch) {
+            totalTxCount += block.block.transactions.length;
+        }
 
         const insertMany = this.db.transaction((batch: StoredBlock[]) => {
             for (let i = 0; i < batch.length; i++) {
@@ -185,6 +203,12 @@ export class BlockDB {
                 }
                 this.storeBlock(storedBlock);
                 lastStoredBlockNum++;
+            }
+
+            // Update the transaction count once for the entire batch
+            if (totalTxCount > 0) {
+                const currentCount = this.getTxCount();
+                this.setTxCount(currentCount + totalTxCount);
             }
         });
         insertMany(batch);

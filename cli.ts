@@ -5,6 +5,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { existsSync } from 'node:fs';
+import { createPluginTemplate } from './lib/pluginTemplate.js';
 
 const argv = yargs(hideBin(process.argv))
     .command('run', 'Run the indexer', {
@@ -83,7 +84,6 @@ async function main() {
             process.exit(code || 0);
         });
     } else if (command === 'init') {
-        const { createPluginTemplate } = await import('./lib/pluginTemplate');
         await createPluginTemplate(argv.name, argv['plugins-dir']);
     }
 }
