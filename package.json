@@ -12,8 +12,6 @@
     "dist"
   ],
   "scripts": {
-    "dev": "tsx watch --clear-screen=false start.ts",
-    "dev:clean": "rm -f ./database/*/indexing*; tsx watch --clear-screen=false start.ts",
     "docker:push": "docker buildx build --platform linux/amd64,linux/arm64 -t ghcr.io/containerman17/frostbyte:latest --push .",
     "docker:run": "docker buildx build -t indexer-dev --load . && docker run -it -v ${PWD}/database:/app/database -v ${PWD}/.env:/app/.env -p 3000:3000 indexer-dev",
     "build": "tsc",
@@ -40,7 +38,6 @@
     "@fastify/swagger": "^9.5.1",
     "@fastify/swagger-ui": "^5.2.3",
     "@noble/curves": "^1.9.2",
-    "@types/node": "^24.0.4",
     "better-sqlite3": "^12.1.1",
     "dotenv": "^17.0.0",
     "fastify": "^5.4.0",
@@ -55,6 +52,7 @@
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.0.10",
     "@types/yargs": "^17.0.33",
     "jsondiffpatch": "^0.7.3"
   }

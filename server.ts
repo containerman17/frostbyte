@@ -1,14 +1,12 @@
-import { BlockDB } from './blockFetcher/BlockDB';
+import { BlockDB } from './blockFetcher/BlockDB.js';
 import Fastify, { FastifyInstance } from 'fastify';
 import Sqlite3 from 'better-sqlite3';
-import { initializeIndexingDB } from './lib/dbHelper';
-import { loadPlugins } from './lib/plugins';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { getBlocksDbPath, getIndexerDbPath } from './lib/dbPaths';
-import { ChainConfig } from './config';
+import { initializeIndexingDB } from './lib/dbHelper.js';
+import { loadPlugins } from './lib/plugins.js';
+import { getBlocksDbPath, getIndexerDbPath } from './lib/dbPaths.js';
+import { ChainConfig } from './config.js';
 import Database from 'better-sqlite3';
-import { getPluginDirs } from './config';
+import { getPluginDirs } from './config.js';
 
 const docsPage = `
 <!doctype html>

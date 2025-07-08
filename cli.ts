@@ -3,6 +3,8 @@ import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { existsSync } from 'node:fs';
 
 const argv = yargs(hideBin(process.argv))
     .command('run', 'Run the indexer', {
@@ -44,8 +46,35 @@ async function main() {
         env['DATA_DIR'] = path.resolve(argv['data-dir']);
 
         // Run the start script
-        const startPath = path.join(__dirname, 'start.js');
-        const child = spawn(process.execPath, [startPath], {
+        const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+        // Check if we're running from source (development) or dist (production)
+        const tsStartPath = path.join(__dirname, 'start.ts');
+        const jsStartPath = path.join(__dirname, 'start.js');
+        const startPath = existsSync(tsStartPath) ? tsStartPath : jsStartPath;
+
+        // Find tsx - try multiple locations
+        let tsxPath: string | undefined;
+
+        // Try local node_modules first
+        const localTsx = path.join(__dirname, 'node_modules', '.bin', 'tsx');
+        if (existsSync(localTsx)) {
+            tsxPath = localTsx;
+        } else {
+            // If not found locally, use npx to run tsx
+            // This will work for global installations
+            const child = spawn('npx', ['--yes', 'tsx', startPath], {
+                env,
+                stdio: 'inherit',
+            });
+
+            child.on('exit', (code) => {
+                process.exit(code || 0);
+            });
+            return;
+        }
+
+        const child = spawn(tsxPath, [startPath], {
             env,
             stdio: 'inherit',
         });
@@ -54,7 +83,7 @@ async function main() {
             process.exit(code || 0);
         });
     } else if (command === 'init') {
-        const { createPluginTemplate } = await import('./lib/pluginTemplate.js');
+        const { createPluginTemplate } = await import('./lib/pluginTemplate');
         await createPluginTemplate(argv.name, argv['plugins-dir']);
     }
 }

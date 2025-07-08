@@ -1,14 +1,13 @@
-import { BlockDB } from './blockFetcher/BlockDB';
+import { BlockDB } from './blockFetcher/BlockDB.js';
 import Database from 'better-sqlite3';
-import { loadPlugins } from './lib/plugins';
+import { loadPlugins } from './lib/plugins.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getIntValue, initializeIndexingDB, setIntValue, performIndexingPostCatchUpMaintenance, performIndexingPeriodicMaintenance } from './lib/dbHelper';
-import { IndexerModule } from './lib/types';
+import { getIntValue, initializeIndexingDB, setIntValue, performIndexingPostCatchUpMaintenance, performIndexingPeriodicMaintenance } from './lib/dbHelper.js';
+import { IndexerModule } from './lib/types.js';
 import fs from 'node:fs';
-import { getIndexerDbPath } from './lib/dbPaths';
-import { ChainConfig, CHAIN_CONFIGS } from './config';
-import { getPluginDirs } from './config';
+import { getIndexerDbPath } from './lib/dbPaths.js';
+import { getPluginDirs } from './config.js';
 
 export interface IndexerOptions {
     blocksDbPath: string;

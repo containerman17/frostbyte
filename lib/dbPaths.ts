@@ -1,7 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
-import { DATA_DIR } from '../config';
-import { getAvailableIndexers } from '../indexer';
+import { DATA_DIR } from '../config.js';
+import { getAvailableIndexers } from '../indexer.js';
 
 /**
  * Get the path for the blocks database
@@ -69,23 +69,19 @@ function deleteOldIndexerVersions(
             if (version !== currentVersion) {
                 const filePath = path.join(baseDir, file);
                 console.log(`[${indexerName}] Deleting old database version ${version}: ${file}`);
-                try {
-                    fs.unlinkSync(filePath);
-                    // Also delete associated journal files
-                    const journalPath = filePath + '-journal';
-                    if (fs.existsSync(journalPath)) {
-                        fs.unlinkSync(journalPath);
-                    }
-                    const walPath = filePath + '-wal';
-                    if (fs.existsSync(walPath)) {
-                        fs.unlinkSync(walPath);
-                    }
-                    const shmPath = filePath + '-shm';
-                    if (fs.existsSync(shmPath)) {
-                        fs.unlinkSync(shmPath);
-                    }
-                } catch (error) {
-                    console.error(`[${indexerName}] Failed to delete old database: ${error}`);
+                fs.unlinkSync(filePath);
+                // Also delete associated journal files
+                const journalPath = filePath + '-journal';
+                if (fs.existsSync(journalPath)) {
+                    fs.unlinkSync(journalPath);
+                }
+                const walPath = filePath + '-wal';
+                if (fs.existsSync(walPath)) {
+                    fs.unlinkSync(walPath);
+                }
+                const shmPath = filePath + '-shm';
+                if (fs.existsSync(shmPath)) {
+                    fs.unlinkSync(shmPath);
                 }
             }
         }

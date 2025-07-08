@@ -1,5 +1,5 @@
-import { BatchRpc } from "./BatchRpc";
-import { BlockDB } from "./BlockDB";
+import { BatchRpc } from "./BatchRpc.js";
+import { BlockDB } from "./BlockDB.js";
 
 const NO_BLOCKS_PAUSE_TIME = 3 * 1000;
 const ERROR_PAUSE_TIME = 10 * 1000;
@@ -32,10 +32,10 @@ export async function startFetchingLoop(blockDB: BlockDB, batchRpc: BatchRpc, bl
             const newLatestRemoteBlock = await batchRpc.getCurrentBlockNumber();
             if (newLatestRemoteBlock === latestRemoteBlock) {
                 console.log(`No new blocks, pause before checking again ${NO_BLOCKS_PAUSE_TIME / 1000}s`);
-                
+
                 // Step 3: Perform periodic maintenance during idle gaps
                 blockDB.performPeriodicMaintenance();
-                
+
                 await new Promise(resolve => setTimeout(resolve, NO_BLOCKS_PAUSE_TIME));
                 continue;
             }
@@ -53,10 +53,10 @@ export async function startFetchingLoop(blockDB: BlockDB, batchRpc: BatchRpc, bl
             const blocks = await batchRpc.getBlocksWithReceipts(blockNumbers);
             blockDB.storeBlocks(blocks);
             lastStoredBlock = endBlock;
-            
+
             // Check if we just caught up and trigger maintenance if so
             blockDB.checkAndUpdateCatchUpStatus();
-            
+
             const end = performance.now();
             const blocksLeft = latestRemoteBlock - endBlock;
             const blocksPerSecond = blocks.length / (end - start) * 1000;
