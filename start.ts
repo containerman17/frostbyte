@@ -69,7 +69,11 @@ if (cluster.isPrimary) {
 
     // If any worker dies, kill everything
     cluster.on('exit', (worker, code, signal) => {
-        console.error(`Worker ${worker.process.pid} died with code ${code} and signal ${signal}`);
+        const workerRole = worker.process.env?.['ROLE'] || 'unknown';
+        const workerIndexer = worker.process.env?.['INDEXER_NAME'] || 'N/A';
+        const workerChain = worker.process.env?.['CHAIN_ID'] || 'N/A';
+
+        console.error(`Worker ${worker.process.pid} (role: ${workerRole}, indexer: ${workerIndexer}, chain: ${workerChain}) died with code ${code} and signal ${signal}`);
         console.error('Terminating primary process as a worker has died');
         killAllWorkers();
         process.exit(1);
@@ -88,7 +92,7 @@ if (cluster.isPrimary) {
             awaitIndexerDatabases(dbDir, config.rpcConfig.rpcSupportsDebug);
         }
         const apiServer = await createApiServer(CHAIN_CONFIGS);
-        apiServer.start(3000);
+        await apiServer.start(3000);
     } else if (process.env['ROLE'] === 'indexer') {
         const chainConfig = getCurrentChainConfig();
         const blocksDbPath = getBlocksDbPath(chainConfig.blockchainId, chainConfig.rpcConfig.rpcSupportsDebug);
