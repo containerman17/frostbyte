@@ -1,21 +1,21 @@
-# snowpack
+# frostbyte
 
 A high-performance Avalanche L1 indexer kit with TypeScript plugin support.
 
 ## Installation
 
 ```bash
-npm install -g index-kit
+npm install -g frostbyte
 ```
 
 ## Quick Start
 
 ```bash
 # Create a new plugin
-index-kit init --name my-indexer
+frostbyte init --name my-indexer
 
 # Run the indexer
-index-kit run --plugins-dir ./plugins --data-dir ./data
+frostbyte run --plugins-dir ./plugins --data-dir ./data
 ```
 
 ## Writing Plugins
@@ -23,7 +23,7 @@ index-kit run --plugins-dir ./plugins --data-dir ./data
 Plugins are TypeScript files that implement the `IndexerModule` interface:
 
 ```typescript
-import type { IndexerModule } from "index-kit";
+import type { IndexerModule } from "frostbyte";
 
 const module: IndexerModule = {
     name: "my-indexer",
@@ -80,12 +80,12 @@ Create `chains.json` in your data directory:
 
 ## CLI Commands
 
-### `index-kit run`
+### `frostbyte run`
 
 - `--plugins-dir` (required): Directory containing plugin files
 - `--data-dir`: Data storage directory (default: `./data`)
 
-### `index-kit init`
+### `frostbyte init`
 
 - `--name` (required): Plugin name
 - `--plugins-dir`: Where to create the plugin (default: `./plugins`)

@@ -1,4 +1,4 @@
-// Main exports for index-kit plugin developers
+// Main exports for frostbyte plugin developers
 
 // The main interface plugins must implement
 export type { IndexerModule, RegisterRoutesContext } from './lib/types';

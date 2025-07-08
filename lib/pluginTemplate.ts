@@ -14,7 +14,7 @@ export async function createPluginTemplate(name: string, pluginsDir: string) {
         throw new Error(`Plugin ${name} already exists at ${pluginPath}`);
     }
 
-    const template = `import type { IndexerModule } from "index-kit";
+    const template = `import type { IndexerModule } from "frostbyte";
 
 const module: IndexerModule = {
     name: "${name}",
@@ -65,5 +65,5 @@ export default module;
     console.log(`✅ Created plugin: ${pluginPath}`);
     console.log(`\nNext steps:`);
     console.log(`1. Edit the plugin to add your indexing logic`);
-    console.log(`2. Run: index-kit run --plugins-dir ${pluginsDir}`);
+    console.log(`2. Run: frostbyte run --plugins-dir ${pluginsDir}`);
 } 

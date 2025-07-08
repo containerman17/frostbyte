@@ -1,12 +1,12 @@
 {
-  "name": "index-kit",
+  "name": "frostbyte",
   "version": "0.1.0",
   "description": "A high-performance blockchain indexer with TypeScript plugin support",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "index-kit": "./dist/cli.js"
+    "frostbyte": "./dist/cli.js"
   },
   "files": [
     "dist"
@@ -30,7 +30,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-org/index-kit.git"
+    "url": "https://github.com/containerman17/snowpack.git"
   },
   "engines": {
     "node": ">=18.0.0"
