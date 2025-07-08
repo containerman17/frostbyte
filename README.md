@@ -23,7 +23,7 @@ frostbyte run --plugins-dir ./plugins --data-dir ./data
 Plugins are TypeScript files that implement the `IndexerModule` interface:
 
 ```typescript
-import type { IndexerModule } from "frostbyte";
+import type { IndexerModule } from "frostbyte-sdk";
 
 const module: IndexerModule = {
     name: "my-indexer",

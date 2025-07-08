@@ -1,4 +1,4 @@
-import type { IndexerModule } from "../index.js";// Replace it with '...from "frostbyte"'
+import type { IndexerModule } from "../index.js";// Replace it with '...from "frostbyte-sdk"'
 
 type ChainStatus = {
     evmChainId: number;

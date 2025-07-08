@@ -14,7 +14,7 @@ export async function createPluginTemplate(name: string, pluginsDir: string) {
         throw new Error(`Plugin ${name} already exists at ${pluginPath}`);
     }
 
-    const template = `import { type IndexerModule, prepQueryCached } from "frostbyte";
+    const template = `import { type IndexerModule, prepQueryCached } from "frostbyte-sdk";
 
 const module: IndexerModule = {
     name: "${name}",
