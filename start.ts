@@ -21,20 +21,22 @@ if (cluster.isPrimary) {
                 console.log(`Discovered ${availableIndexers.length} indexers: ${availableIndexers.join(', ')}`);
 
                 for (const indexerName of availableIndexers) {
-                    cluster.fork({
+                    const worker = cluster.fork({
                         ROLE: 'indexer',
                         INDEXER_NAME: indexerName,
                         CHAIN_ID: config.blockchainId,
                     });
-                    console.log(`Spawned worker for indexer: ${indexerName}`);
+                    console.log(`Spawned worker for indexer: ${indexerName}, PID: ${worker.process.pid}, Chain ID: ${config.blockchainId}`);
                 }
             } else if (role === 'fetcher') {
                 // Spawn single worker for other roles
-                cluster.fork({ ROLE: role, CHAIN_ID: config.blockchainId });
+                const worker = cluster.fork({ ROLE: role, CHAIN_ID: config.blockchainId });
+                console.log(`Spawned worker for role: ${role}, PID: ${worker.process.pid}, Chain ID: ${config.blockchainId}`);
             } else if (role === 'api') {
                 // API would be started as one process for all chains
                 if (!apiStarted) {
-                    cluster.fork({ ROLE: role });
+                    const worker = cluster.fork({ ROLE: role });
+                    console.log(`Spawned worker for role: ${role}, PID: ${worker.process.pid}`);
                     apiStarted = true;
                 }
             }
@@ -68,13 +70,8 @@ if (cluster.isPrimary) {
     });
 
     // If any worker dies, kill everything
-    cluster.on('exit', (worker, code, signal) => {
-        const workerRole = worker.process.env?.['ROLE'] || 'unknown';
-        const workerIndexer = worker.process.env?.['INDEXER_NAME'] || 'N/A';
-        const workerChain = worker.process.env?.['CHAIN_ID'] || 'N/A';
-
-        console.error(`Worker ${worker.process.pid} (role: ${workerRole}, indexer: ${workerIndexer}, chain: ${workerChain}) died with code ${code} and signal ${signal}`);
-        console.error('Terminating primary process as a worker has died');
+    cluster.on('exit', (worker: Worker, code, signal) => {
+        console.error(`Terminating primary process as a worker ${worker.process.pid} has died with code ${code} and signal ${signal}`);
         killAllWorkers();
         process.exit(1);
     });

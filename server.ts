@@ -109,12 +109,19 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
     }
 
     for (const indexer of indexers) {
-        indexer.registerRoutes(app, {
-            blocksDbFactory: getBlocksDb,
-            indexerDbFactory: (evmChainId: number) => getIndexerDb(evmChainId, indexer.name, indexer.version),
-            getChainConfig: getChainConfig,
-            getAllChainConfigs: getAllChainConfigs
-        });
+        console.log(`Registering routes for indexer "${indexer.name}"`);
+        try {
+            indexer.registerRoutes(app, {
+                blocksDbFactory: getBlocksDb,
+                indexerDbFactory: (evmChainId: number) => getIndexerDb(evmChainId, indexer.name, indexer.version),
+                getChainConfig: getChainConfig,
+                getAllChainConfigs: getAllChainConfigs
+            });
+        } catch (error) {
+            console.error(`Failed to register routes for indexer "${indexer.name}":`, error);
+            throw new Error(`Indexer "${indexer.name}" route registration failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        console.log(`Routes registered for indexer "${indexer.name}"`);
     }
 
     // Add route to serve OpenAPI JSON
