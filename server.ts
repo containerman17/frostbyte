@@ -129,14 +129,18 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
         return reply.send(app.swagger());
     });
 
-    // Add root route
-    app.get('/', {
-        schema: {
-            hide: true
-        }
-    }, async (request, reply) => {
-        return reply.type('text/html').send(`<a href="/docs">OpenAPI documentation</a>`);
-    });
+    // Add root route only if not already registered by indexers
+    const rootRouteExists = app.hasRoute({ method: 'GET', url: '/' });
+
+    if (!rootRouteExists) {
+        app.get('/', {
+            schema: {
+                hide: true
+            }
+        }, async (request, reply) => {
+            return reply.type('text/html').send(`<a href="/docs">OpenAPI documentation</a>`);
+        });
+    }
 
     // Add docs route
     app.get('/docs', {
