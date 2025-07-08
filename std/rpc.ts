@@ -112,14 +112,39 @@ const registerRoutes: IndexerModule['registerRoutes'] = (app, dbCtx) => {
                 items: {}
             },
             id: {
-                oneOf: [
+                anyOf: [
                     { type: 'string' },
-                    { type: 'number' }
+                    { type: 'number' },
+                    { type: 'null' }
                 ]
             },
             jsonrpc: { type: 'string' }
         },
-        required: ['method']
+        required: ['method'],
+        examples: [
+            {
+                jsonrpc: '2.0',
+                method: 'eth_chainId',
+                id: 1
+            },
+            {
+                jsonrpc: '2.0',
+                method: 'eth_blockNumber',
+                id: 2
+            },
+            {
+                jsonrpc: '2.0',
+                method: 'eth_getBlockByNumber',
+                params: ['0x5BAD55', true],
+                id: 3
+            },
+            {
+                jsonrpc: '2.0',
+                method: 'eth_getTransactionReceipt',
+                params: ['0x85d995eba9763907fdf35cd2034144dd9d53ce32cbec21349d4b12823c6860c5'],
+                id: 4
+            }
+        ]
     };
 
     const rpcResponseSchema = {
@@ -135,9 +160,10 @@ const registerRoutes: IndexerModule['registerRoutes'] = (app, dbCtx) => {
                 required: ['code', 'message']
             },
             id: {
-                oneOf: [
+                anyOf: [
                     { type: 'string' },
-                    { type: 'number' }
+                    { type: 'number' },
+                    { type: 'null' }
                 ]
             },
             jsonrpc: { type: 'string' }
@@ -151,6 +177,33 @@ const registerRoutes: IndexerModule['registerRoutes'] = (app, dbCtx) => {
                 type: 'array',
                 items: rpcRequestSchema
             }
+        ],
+        examples: [
+            // Single request example
+            {
+                jsonrpc: '2.0',
+                method: 'eth_chainId',
+                id: 1
+            },
+            // Batch request example
+            [
+                {
+                    jsonrpc: '2.0',
+                    method: 'eth_chainId',
+                    id: 1
+                },
+                {
+                    jsonrpc: '2.0',
+                    method: 'eth_blockNumber',
+                    id: 2
+                },
+                {
+                    jsonrpc: '2.0',
+                    method: 'eth_getBlockByNumber',
+                    params: ['latest', false],
+                    id: 3
+                }
+            ]
         ]
     };
 
@@ -170,7 +223,72 @@ const registerRoutes: IndexerModule['registerRoutes'] = (app, dbCtx) => {
             tags: ['RPC'],
             summary: 'Handles JSON-RPC requests',
             params: paramsSchema,
-            body: batchRequestSchema,
+            body: {
+                oneOf: [
+                    {
+                        type: 'object',
+                        properties: {
+                            method: { type: 'string' },
+                            params: {
+                                type: 'array',
+                                items: {}
+                            },
+                            id: {
+                                anyOf: [
+                                    { type: 'string' },
+                                    { type: 'number' },
+                                    { type: 'null' }
+                                ]
+                            },
+                            jsonrpc: { type: 'string' }
+                        },
+                        required: ['method']
+                    },
+                    {
+                        type: 'array',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                method: { type: 'string' },
+                                params: {
+                                    type: 'array',
+                                    items: {}
+                                },
+                                id: {
+                                    anyOf: [
+                                        { type: 'string' },
+                                        { type: 'number' },
+                                        { type: 'null' }
+                                    ]
+                                },
+                                jsonrpc: { type: 'string' }
+                            },
+                            required: ['method']
+                        }
+                    }
+                ],
+                examples: [
+                    // Single request example
+                    {
+                        jsonrpc: '2.0',
+                        method: 'eth_chainId',
+                        id: 1
+                    },
+                    // Batch request example
+                    [
+                        {
+                            jsonrpc: '2.0',
+                            method: 'eth_chainId',
+                            id: 1
+                        },
+                        {
+                            jsonrpc: '2.0',
+                            method: 'eth_blockNumber',
+                            id: 2
+                        }
+                    ]
+                ]
+            },
             response: {
                 200: batchResponseSchema
             }
