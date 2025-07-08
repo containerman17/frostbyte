@@ -56,3 +56,13 @@ export function getCurrentChainConfig(): ChainConfig {
     }
     return chain;
 }
+
+export function getPluginDirs(): string[] {
+    const PLUGIN_DIRS = process.env['PLUGIN_DIRS'];
+    if (!PLUGIN_DIRS) {
+        // Default to pluginExamples if no plugin dirs specified
+        return [path.join(__dirname, 'pluginExamples')];
+    }
+    // Split by comma or semicolon to support multiple directories
+    return PLUGIN_DIRS.split(/[,;]/).map(dir => dir.trim()).filter(dir => dir.length > 0);
+}

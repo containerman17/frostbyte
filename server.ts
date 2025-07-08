@@ -5,10 +5,10 @@ import { initializeIndexingDB } from './lib/dbHelper';
 import { loadPlugins } from './lib/plugins';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import fs from 'node:fs';
-import { findIndexerDatabase, getBlocksDbPath, getIndexerDbPath } from './lib/dbPaths';
+import { getBlocksDbPath, getIndexerDbPath } from './lib/dbPaths';
 import { ChainConfig } from './config';
 import Database from 'better-sqlite3';
+import { getPluginDirs } from './config';
 
 const docsPage = `
 <!doctype html>
@@ -33,8 +33,7 @@ const docsPage = `
 `;
 
 export async function createApiServer(chainConfigs: ChainConfig[]) {
-    const __dirname = path.dirname(fileURLToPath(import.meta.url));
-    const indexers = await loadPlugins([path.join(__dirname, 'pluginExamples')]);
+    const indexers = await loadPlugins(getPluginDirs());
 
     const app: FastifyInstance = Fastify({ logger: false });
 

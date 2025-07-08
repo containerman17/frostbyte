@@ -1,16 +1,95 @@
-# FrostByte
+# snowpack
 
-## Notes
+A high-performance Avalanche L1 indexer kit with TypeScript plugin support.
 
-- e2e is originally 2c1BN4N9qEhNmW4yCpeLK24SfjFQLyS1Z7FtgRDaYxZWFUUKxf
-
-## Restore E2E Database
+## Installation
 
 ```bash
-# Download and extract database backup
-curl -o database_e2e_numine.tar.gz https://pub-bdd9bf0f9525419495f511e25d842b66.r2.dev/database_e2e_numine.tar.gz
-tar -xzf database_e2e_numine.tar.gz
-rm database_e2e_numine.tar.gz
+npm install -g index-kit
 ```
 
-Now run it `npm run test:specs`
+## Quick Start
+
+```bash
+# Create a new plugin
+index-kit init --name my-indexer
+
+# Run the indexer
+index-kit run --plugins-dir ./plugins --data-dir ./data
+```
+
+## Writing Plugins
+
+Plugins are TypeScript files that implement the `IndexerModule` interface:
+
+```typescript
+import type { IndexerModule } from "index-kit";
+
+const module: IndexerModule = {
+    name: "my-indexer",
+    version: 1,
+    usesTraces: false,
+
+    // Called when version changes
+    wipe: (db) => {
+        db.exec(`DROP TABLE IF EXISTS my_data`);
+    },
+
+    // Called once on startup
+    initialize: (db) => {
+        db.exec(`CREATE TABLE IF NOT EXISTS my_data (...)`);
+    },
+
+    // Called for each batch of transactions
+    handleTxBatch: (db, blocksDb, batch) => {
+        for (const tx of batch.txs) {
+            // Index transaction data
+        }
+    },
+
+    // Optional: Add API endpoints
+    registerRoutes: (app, dbCtx) => {
+        app.get("/:evmChainId/my-endpoint", async (request, reply) => {
+            // Handle API request
+        });
+    },
+};
+
+export default module;
+```
+
+## Configuration
+
+Create `chains.json` in your data directory:
+
+```json
+[{
+    "chainName": "Avalanche C-Chain",
+    "blockchainId": "2q9e4r6Mu3U68nU1fYjgbR6JvwrRx36CohpAX5UQxse55x1Q5",
+    "evmChainId": 43114,
+    "rpcConfig": {
+        "rpcUrl": "https://api.avax.network/ext/bc/C/rpc",
+        "requestBatchSize": 20,
+        "maxConcurrentRequests": 10,
+        "rps": 50,
+        "rpcSupportsDebug": false,
+        "blocksPerBatch": 100
+    }
+}]
+```
+
+## CLI Commands
+
+### `index-kit run`
+
+- `--plugins-dir` (required): Directory containing plugin files
+- `--data-dir`: Data storage directory (default: `./data`)
+
+### `index-kit init`
+
+- `--name` (required): Plugin name
+- `--plugins-dir`: Where to create the plugin (default: `./plugins`)
+
+## License
+
+MIT
