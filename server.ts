@@ -45,8 +45,8 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
             },
             servers: [
                 {
-                    url: 'http://localhost:3000',
-                    description: 'Local development server'
+                    url: '/',
+                    description: 'This server'
                 }
             ],
             tags: [
