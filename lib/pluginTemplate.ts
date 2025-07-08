@@ -14,7 +14,7 @@ export async function createPluginTemplate(name: string, pluginsDir: string) {
         throw new Error(`Plugin ${name} already exists at ${pluginPath}`);
     }
 
-    const template = `import type { IndexerModule } from "frostbyte";
+    const template = `import { type IndexerModule, prepQueryCached } from "frostbyte";
 
 const module: IndexerModule = {
     name: "${name}",
@@ -30,30 +30,55 @@ const module: IndexerModule = {
     initialize: (db) => {
         db.exec(\`
             CREATE TABLE IF NOT EXISTS ${name}_data (
-                block_number INTEGER PRIMARY KEY,
-                -- Add your columns here
-                value TEXT
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                total_count INTEGER NOT NULL DEFAULT 0
             )
         \`);
+
+        // Initialize with 0 if not exists
+        db.exec(\`INSERT OR IGNORE INTO ${name}_data (id, total_count) VALUES (1, 0)\`);
     },
     
     // Process transactions
     handleTxBatch: (db, blocksDb, batch) => {
-        // Your indexing logic here
-        for (const tx of batch.txs) {
-            // Process each transaction
-            console.log(\`Processing block \${tx.block.number}, tx \${tx.tx.hash}\`);
-        }
+        const txCount = batch.txs.length;
+        prepQueryCached(db, \`
+            UPDATE ${name}_data SET total_count = total_count + ? WHERE id = 1
+        \`).run(txCount);
     },
     
-    // Optional: Add API endpoints
+    // Add API endpoints
     registerRoutes: (app, dbCtx) => {
-        app.get('/:evmChainId/${name}/status', async (request, reply) => {
+        app.get('/:evmChainId/${name}/total', {
+            schema: {
+                params: {
+                    type: 'object',
+                    properties: {
+                        evmChainId: { type: 'number' }
+                    },
+                    required: ['evmChainId']
+                },
+                response: {
+                    200: {
+                        type: 'object',
+                        properties: {
+                            totalCount: { type: 'number' }
+                        },
+                        required: ['totalCount']
+                    }
+                }
+            }
+        }, async (request, reply) => {
             const { evmChainId } = request.params as { evmChainId: number };
             const db = dbCtx.indexerDbFactory(evmChainId);
-            
-            // Your API logic here
-            return { status: "ok" };
+
+            const result = prepQueryCached(db, \`
+                SELECT total_count FROM ${name}_data WHERE id = 1
+            \`).get() as { total_count: number } | undefined;
+
+            return {
+                totalCount: result?.total_count || 0
+            };
         });
     }
 };
