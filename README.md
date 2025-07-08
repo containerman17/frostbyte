@@ -5,7 +5,7 @@ A high-performance Avalanche L1 indexer kit with TypeScript plugin support.
 ## Installation
 
 ```bash
-npm install -g frostbyte
+npm install -g frostbyte-sdk
 ```
 
 ## Quick Start
