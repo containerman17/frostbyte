@@ -1,4 +1,4 @@
-import type { IndexerModule, BlockDB, RpcBlock, RegisterRoutesContext } from "../../index.ts";
+import type { IndexerModule, BlockDB, RpcBlock, RegisterRoutesContext } from "../index.ts";
 import { utils } from "@avalabs/avalanchejs";
 
 // JSON-RPC types

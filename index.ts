@@ -13,3 +13,9 @@ export type { FastifyInstance } from 'fastify';
 // BlockDB is passed to handleTxBatch
 export type { BlockDB } from './blockFetcher/BlockDB';
 
+import { IndexerModule } from './lib/types';
+import rpcModule from './std/rpc';
+
+export namespace StandardIndexers {
+    export const RPCIndexer: IndexerModule = rpcModule;
+}
