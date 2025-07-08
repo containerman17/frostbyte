@@ -14,7 +14,8 @@
   "scripts": {
     "build": "tsc",
     "build:watch": "tsc --watch",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "dev": "nodemon --watch plugins --watch data --exec \"npx tsx cli.ts run --plugins-dir ./plugins --data-dir ./data\""
   },
   "keywords": [
     "blockchain",
