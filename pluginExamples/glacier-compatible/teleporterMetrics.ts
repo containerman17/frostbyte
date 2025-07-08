@@ -1,5 +1,5 @@
-import type { IndexerModule } from "../lib/types";
-import { prepQueryCached } from "../lib/prep";
+import type { IndexerModule } from "../../lib/types";
+import { prepQueryCached } from "../../lib/prep";
 
 // Constants
 const TELEPORTER_ADDRESS = "0x253b2784c75e510dd0ff1da844684a1ac0aa5fcf";

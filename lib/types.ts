@@ -5,10 +5,12 @@ import {
     RpcTraceResult,
     StoredTx
 } from "../blockFetcher/evmTypes";
+import { ChainConfig } from "../config";
 
 export interface RegisterRoutesContext {
     blocksDbFactory: (evmChainId: number) => BlockDB;
     indexerDbFactory: (evmChainId: number) => SQLite.Database;
+    getChainConfig: (evmChainId: number) => ChainConfig;
 }
 
 /** All plugin files must export these symbols. */
