@@ -80,7 +80,7 @@ if (cluster.isPrimary) {
         const blocksDbPath = getBlocksDbPath(chainConfig.blockchainId, chainConfig.rpcConfig.rpcSupportsDebug);
         const blocksDb = new BlockDB({ path: blocksDbPath, isReadonly: false, hasDebug: chainConfig.rpcConfig.rpcSupportsDebug });
         const batchRpc = new BatchRpc(chainConfig.rpcConfig);
-        startFetchingLoop(blocksDb, batchRpc, chainConfig.rpcConfig.blocksPerBatch);
+        startFetchingLoop(blocksDb, batchRpc, chainConfig.rpcConfig.blocksPerBatch, chainConfig.chainName);
     } else if (process.env['ROLE'] === 'api') {
         for (let config of CHAIN_CONFIGS) {
             console.log(`Waiting for indexer databases for ${config.chainName}...`);
