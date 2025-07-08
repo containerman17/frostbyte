@@ -15,5 +15,8 @@ RUN --mount=type=cache,target=/root/.npm \
     npm ci --prefer-offline --no-audit
 
 COPY . .
-# TODO: compile
-CMD ["npx", "tsx", "start.ts"]
+
+RUN npm run build
+RUN npm link
+
+CMD ["frostbyte", "run", "--plugins-dir=/plugins", "--data-dir=/data"]

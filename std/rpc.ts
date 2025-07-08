@@ -1,4 +1,4 @@
-import type { IndexerModule, BlockDB, RpcBlock, RegisterRoutesContext } from "../index.js";// Replace it with '...from "frostbyte-sdk"'
+import type { IndexerModule, BlockDB, RpcBlock, RegisterRoutesContext } from "../index";
 import { utils } from "@avalabs/avalanchejs";
 
 // JSON-RPC types

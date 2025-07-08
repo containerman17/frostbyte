@@ -19,8 +19,12 @@ export type { BlockDB } from './blockFetcher/BlockDB';
 import { IndexerModule } from './lib/types';
 import rpcModule from './std/rpc';
 import chainsModule from './std/chains';
+import blocksModule from './std/blocks';
+import transactionsModule from './std/transactions';
 
 export namespace StandardIndexers {
     export const RPCIndexer: IndexerModule = rpcModule;
     export const ChainsIndexer: IndexerModule = chainsModule;
+    export const BlocksIndexer: IndexerModule = blocksModule;
+    export const TransactionsIndexer: IndexerModule = transactionsModule;
 }

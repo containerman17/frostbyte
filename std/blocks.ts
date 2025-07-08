@@ -1,4 +1,4 @@
-import type { IndexerModule, RpcBlock } from "../index.js";// Replace it with '...from "frostbyte-sdk"'
+import type { IndexerModule, RpcBlock } from "../index";
 
 // Schema definition for RpcBlock
 const rpcBlockSchema = {

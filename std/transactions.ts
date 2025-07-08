@@ -1,4 +1,4 @@
-import type { IndexerModule, StoredTx, RpcTxReceipt, RpcTraceResult } from "../index.js";// Replace it with '...from "frostbyte-sdk"'
+import type { IndexerModule, StoredTx, RpcTxReceipt, RpcTraceResult } from "../index";
 
 // Schema definitions for response types
 const rpcBlockTransactionSchema = {

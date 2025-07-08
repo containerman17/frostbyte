@@ -18,6 +18,51 @@ frostbyte init --name my-indexer
 frostbyte run --plugins-dir ./plugins --data-dir ./data
 ```
 
+## Docker
+
+You can run frostbyte using the pre-built Docker image:
+
+```bash
+# Pull the latest image
+docker pull ghcr.io/containerman17/frostbyte:latest
+
+# Run the container
+docker run -it --rm \
+  -v $(pwd)/data:/data \
+  -v $(pwd)/plugins:/plugins \
+  ghcr.io/containerman17/frostbyte:latest
+```
+
+### Path Mappings
+
+When running in Docker, the following paths are used:
+
+- **Host `./data` → Container `/data`**: This directory contains:
+  - `chains.json` - Your blockchain configuration
+  - SQLite database files for each chain
+  - Any other persistent data
+
+- **Host `./plugins` → Container `/plugins`**: This directory contains:
+  - Your TypeScript plugin files (`.ts` files)
+  - These are compiled and loaded at runtime
+
+The container expects these paths to exist:
+
+- Create `./data/chains.json` with your chain configuration
+- Place your plugin files in `./plugins/`
+
+Example directory structure:
+
+```
+.
+├── data/
+│   ├── chains.json
+│   └── *.db (created automatically)
+└── plugins/
+    ├── my-indexer.ts
+    └── another-plugin.ts
+```
+
 ## Writing Plugins
 
 Plugins are TypeScript files that implement the `IndexerModule` interface:

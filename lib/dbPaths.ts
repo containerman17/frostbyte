@@ -124,6 +124,12 @@ export async function awaitIndexerDatabases(baseDir: string, debugEnabled: boole
     const availableIndexers = await getAvailableIndexers();
     console.log(`API worker waiting for ${availableIndexers.length} indexer databases...`);
 
+    // If no indexers are available, skip waiting
+    if (availableIndexers.length === 0) {
+        console.log('No indexers available, skipping database wait');
+        return;
+    }
+
     while (true) {
         // Check if directory exists
         if (!fs.existsSync(baseDir)) {
@@ -145,7 +151,9 @@ export async function awaitIndexerDatabases(baseDir: string, debugEnabled: boole
 
         await new Promise(resolve => setTimeout(resolve, intervalMs));
         if (Date.now() - startTime > maxMs) {
-            throw new Error(`No indexer databases found in ${baseDir} after ${maxMs} ms`);
+            // Instead of throwing, just log a warning and continue
+            console.warn(`Warning: No indexer databases found in ${baseDir} after ${maxMs} ms. Continuing anyway...`);
+            return;
         }
     }
 }
