@@ -12,9 +12,8 @@
     "dist"
   ],
   "scripts": {
-    "docker:push": "docker buildx build --platform linux/amd64,linux/arm64 -t ghcr.io/containerman17/frostbyte:latest --push .",
-    "docker:run": "docker buildx build -t indexer-dev --load . && docker run -it -v ${PWD}/database:/app/database -v ${PWD}/.env:/app/.env -p 3000:3000 indexer-dev",
     "build": "tsc",
+    "build:watch": "tsc --watch",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
