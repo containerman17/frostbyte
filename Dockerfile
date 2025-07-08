@@ -17,6 +17,14 @@ RUN --mount=type=cache,target=/root/.npm \
 COPY . .
 
 RUN npm run build
-RUN npm link
+
+# Create a tarball of the package and install it globally
+# This makes frostbyte-sdk available for external plugins
+RUN npm pack && \
+    npm install -g frostbyte-sdk-*.tgz && \
+    rm frostbyte-sdk-*.tgz
+
+# Set NODE_PATH to include global modules so external plugins can resolve imports
+ENV NODE_PATH=/usr/local/lib/node_modules
 
 CMD ["frostbyte", "run", "--plugins-dir=/plugins", "--data-dir=/data"]
