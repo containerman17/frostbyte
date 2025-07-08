@@ -2,7 +2,7 @@
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",
-    "moduleResolution": "bundler",
+    "moduleResolution": "Node",
     "lib": ["ES2022", "DOM"],
     "outDir": "./dist",
     "rootDir": "./",
@@ -21,8 +21,8 @@
     "noImplicitAny": true,
     "noImplicitReturns": true,
     "noImplicitThis": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
     "exactOptionalPropertyTypes": true,
     "noImplicitOverride": true,
     "noPropertyAccessFromIndexSignature": true,
@@ -37,6 +37,8 @@
   "exclude": [
     "node_modules",
     "dist",
+    "pluginExamples",
+    "specs",
     "**/*.test.ts",
     "**/*.spec.ts"
   ],

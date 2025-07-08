@@ -1,8 +1,8 @@
 import { utils } from "@avalabs/avalanchejs";
 import PQueue from 'p-queue';
-import type * as EVMTypes from './evmTypes';
-import { DynamicBatchSizeManager } from './DynamicBatchSizeManager';
-import { RpcConfig } from "../config";
+import type * as EVMTypes from './evmTypes.js';
+import { DynamicBatchSizeManager } from './DynamicBatchSizeManager.js';
+import { RpcConfig } from "../config.js";
 
 // Define a type for the JSON-RPC request and response structures
 interface JsonRpcRequest {

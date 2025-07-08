@@ -1,12 +1,13 @@
-import { BlockDB } from './blockFetcher/BlockDB';
+import { BlockDB } from './blockFetcher/BlockDB.js';
 import Database from 'better-sqlite3';
-import { loadPlugins } from './lib/plugins';
+import { loadPlugins } from './lib/plugins.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getIntValue, initializeIndexingDB, setIntValue, performIndexingPostCatchUpMaintenance, performIndexingPeriodicMaintenance } from './lib/dbHelper';
-import { IndexerModule } from './lib/types';
+import { getIntValue, initializeIndexingDB, setIntValue, performIndexingPostCatchUpMaintenance, performIndexingPeriodicMaintenance } from './lib/dbHelper.js';
+import { IndexerModule } from './lib/types.js';
 import fs from 'node:fs';
-import { getIndexerDbPath } from './lib/dbPaths';
+import { getIndexerDbPath } from './lib/dbPaths.js';
+import { getPluginDirs } from './config.js';
 
 export interface IndexerOptions {
     blocksDbPath: string;
@@ -150,7 +151,7 @@ export async function startAllIndexers(options: IndexerOptions): Promise<void> {
     const blocksDb = new BlockDB({ path: blocksDbPath, isReadonly: true, hasDebug: debugEnabled });
 
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
-    const indexers = await loadPlugins([path.join(__dirname, 'pluginExamples')]);
+    const indexers = await loadPlugins(getPluginDirs());
 
     // Start all indexers in parallel
     const indexerPromises = indexers.map(indexer =>
@@ -169,7 +170,7 @@ export async function startSingleIndexer(options: SingleIndexerOptions): Promise
     const blocksDb = new BlockDB({ path: blocksDbPath, isReadonly: true, hasDebug: debugEnabled });
 
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
-    const indexers = await loadPlugins([path.join(__dirname, 'pluginExamples')]);
+    const indexers = await loadPlugins(getPluginDirs());
 
     // Find the specific indexer
     const indexer = indexers.find(i => i.name === indexerName);
@@ -186,6 +187,21 @@ export async function startSingleIndexer(options: SingleIndexerOptions): Promise
 
 export async function getAvailableIndexers(): Promise<string[]> {
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
-    const indexers = await loadPlugins([path.join(__dirname, 'pluginExamples')]);
+    const indexers = await loadPlugins(getPluginDirs());
     return indexers.map(i => i.name);
+}
+
+// Single indexer mode
+async function runSingleIndexerMode() {
+    // ... existing code ...
+    const indexers = await loadPlugins(getPluginDirs());
+    // ... existing code ...
+}
+
+// All indexers mode - each child runs specific indexer
+async function runAllIndexersMode() {
+    // ... existing code ...
+    const __dirname = path.dirname(fileURLToPath(import.meta.url));
+    const indexers = await loadPlugins(getPluginDirs());
+    // ... existing code ...
 } 

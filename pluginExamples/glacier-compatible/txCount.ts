@@ -1,17 +1,16 @@
-import type { IndexerModule } from "../lib/types";
-import { normalizeTimestamp, TIME_INTERVAL_HOUR, TIME_INTERVAL_DAY, TIME_INTERVAL_WEEK, TIME_INTERVAL_MONTH, getPreviousTimestamp, getTimeIntervalFromString } from "../lib/dateUtils";
-import { countCreateCallsInTrace } from "./lib/evmUtils";
-import { prepQueryCached } from "../lib/prep";
+import type { IndexerModule } from "../../lib/types";
+import { normalizeTimestamp, TIME_INTERVAL_HOUR, TIME_INTERVAL_DAY, TIME_INTERVAL_WEEK, TIME_INTERVAL_MONTH, getPreviousTimestamp, getTimeIntervalFromString } from "../../lib/dateUtils";
+import { prepQueryCached } from "../../lib/prep";
 
 // Wipe function - reset all data
 const wipe: IndexerModule["wipe"] = (db) => {
-    db.exec(`DROP TABLE IF EXISTS cumulative_contracts`);
+    db.exec(`DROP TABLE IF EXISTS tx_counts`);
 };
 
 // Initialize function - set up tables
 const initialize: IndexerModule["initialize"] = (db) => {
     db.exec(`
-        CREATE TABLE IF NOT EXISTS cumulative_contracts (
+        CREATE TABLE IF NOT EXISTS tx_counts (
             time_interval INTEGER NOT NULL,
             timestamp INTEGER NOT NULL,
             count INTEGER NOT NULL,
@@ -22,68 +21,33 @@ const initialize: IndexerModule["initialize"] = (db) => {
 
 // Handle transaction batch
 const handleTxBatch: IndexerModule["handleTxBatch"] = (db, _blocksDb, batch) => {
-    // Count contracts in this batch
-    let batchContractCount = 0;
+    const stmt = prepQueryCached(db, `
+            INSERT INTO tx_counts (time_interval, timestamp, count)
+            VALUES (?, ?, ?)
+            ON CONFLICT(time_interval, timestamp)
+            DO UPDATE SET count = count + ?
+        `);
 
-    // Count from traces if available
-    if (batch.traces) {
-        for (const trace of batch.traces) {
-            batchContractCount += countCreateCallsInTrace(trace.result);
-        }
-    } else {
-        // Fall back to receipt-based counting
-        for (const tx of batch.txs) {
-            if (tx.receipt.contractAddress) {
-                batchContractCount++;
-            }
-        }
-    }
-
-    // If no contracts in this batch, skip processing
-    if (batchContractCount === 0) {
-        return;
-    }
-
-    // Get current cumulative count for each interval
-    const getCurrentStmt = prepQueryCached(db, `
-        SELECT MAX(count) as max_count 
-        FROM cumulative_contracts 
-        WHERE time_interval = ?
-    `);
-
-    const updateStmt = prepQueryCached(db, `
-        INSERT INTO cumulative_contracts (time_interval, timestamp, count)
-        VALUES (?, ?, ?)
-        ON CONFLICT(time_interval, timestamp)
-        DO UPDATE SET count = ?
-    `);
-
-    // Collect unique timestamps for this batch
-    const timestampsByInterval = new Map<number, Set<number>>();
+    // Count transactions per time period
+    const periodCounts = new Map<string, number>();
 
     for (const tx of batch.txs) {
         const blockTimestamp = tx.blockTs;
 
+        // Update counts for each time interval
         for (const timeInterval of [TIME_INTERVAL_HOUR, TIME_INTERVAL_DAY, TIME_INTERVAL_WEEK, TIME_INTERVAL_MONTH]) {
             const normalizedTimestamp = normalizeTimestamp(blockTimestamp, timeInterval);
-
-            if (!timestampsByInterval.has(timeInterval)) {
-                timestampsByInterval.set(timeInterval, new Set());
-            }
-            timestampsByInterval.get(timeInterval)!.add(normalizedTimestamp);
+            const key = `${timeInterval},${normalizedTimestamp}`;
+            periodCounts.set(key, (periodCounts.get(key) || 0) + 1);
         }
     }
 
-    // Update cumulative counts for each interval
-    for (const [timeInterval, timestamps] of timestampsByInterval) {
-        const result = getCurrentStmt.get(timeInterval) as { max_count: number | null };
-        const currentCount = result?.max_count || 0;
-        const newCount = currentCount + batchContractCount;
-
-        for (const timestamp of timestamps) {
-            updateStmt.run(timeInterval, timestamp, newCount, newCount);
-        }
+    // Apply all updates
+    for (const [key, count] of periodCounts) {
+        const [timeInterval, timestamp] = key.split(',').map(Number);
+        stmt.run(timeInterval, timestamp, count, count);
     }
+
 };
 
 // Register routes
@@ -134,11 +98,11 @@ const registerRoutes: IndexerModule["registerRoutes"] = (app, dbCtx) => {
         required: ['results']
     };
 
-    app.get('/:evmChainId/metrics/cumulativeContracts', {
+    app.get('/:evmChainId/metrics/txCount', {
         schema: {
-            description: 'Get cumulative contract deployment data',
+            description: 'Get transaction count data',
             tags: ['Metrics'],
-            summary: 'Get cumulative contract deployment data',
+            summary: 'Get transaction count data',
             params: paramsSchema,
             querystring: querySchema,
             response: {
@@ -170,17 +134,8 @@ const registerRoutes: IndexerModule["registerRoutes"] = (app, dbCtx) => {
 
         const validPageSize = Math.min(Math.max(pageSize, 1), 2160);
 
-        // Get the current cumulative value
-        const currentResult = prepQueryCached(db, `
-            SELECT MAX(count) as max_count 
-            FROM cumulative_contracts 
-            WHERE time_interval = ?
-        `).get(timeIntervalId) as { max_count: number | null };
-
-        const currentCumulativeValue = currentResult?.max_count || 0;
-
         // Build query
-        let query = `SELECT timestamp, count as value FROM cumulative_contracts WHERE time_interval = ?`;
+        let query = `SELECT timestamp, count as value FROM tx_counts WHERE time_interval = ?`;
         const params: any[] = [timeIntervalId];
 
         if (startTimestamp) {
@@ -208,8 +163,8 @@ const registerRoutes: IndexerModule["registerRoutes"] = (app, dbCtx) => {
             results.pop();
         }
 
-        // Backfill cumulative values
-        const backfilled = backfillCumulativeResults(results, timeIntervalId, currentCumulativeValue, startTimestamp, endTimestamp);
+        // Backfill missing periods with zeros
+        const backfilled = backfillResults(results, timeIntervalId, startTimestamp, endTimestamp);
 
         return {
             results: backfilled.slice(0, validPageSize),
@@ -220,39 +175,14 @@ const registerRoutes: IndexerModule["registerRoutes"] = (app, dbCtx) => {
     });
 };
 
-// Helper function to backfill cumulative values
-function backfillCumulativeResults(
+// Helper function to backfill missing time periods with zeros
+function backfillResults(
     results: Array<{ timestamp: number; value: number }>,
     timeInterval: number,
-    currentCumulativeValue: number,
     startTimestamp?: number,
-    endTimestamp?: number
+    _endTimestamp?: number
 ): Array<{ timestamp: number; value: number }> {
-    // If no results and no cumulative value, return empty
-    if (results.length === 0 && currentCumulativeValue === 0) {
-        return [];
-    }
-
-    // If no results but we have a cumulative value, generate synthetic results
-    if (results.length === 0) {
-        const now = Math.floor(Date.now() / 1000);
-        const end = endTimestamp || now;
-        const start = startTimestamp || end - (24 * 60 * 60); // Default to 1 day range
-
-        const syntheticResults: Array<{ timestamp: number; value: number }> = [];
-        let current = normalizeTimestamp(end, timeInterval);
-        const normalizedStart = normalizeTimestamp(start, timeInterval);
-
-        while (current >= normalizedStart) {
-            syntheticResults.push({
-                timestamp: current,
-                value: currentCumulativeValue
-            });
-            current = getPreviousTimestamp(current, timeInterval);
-        }
-
-        return syntheticResults;
-    }
+    if (results.length === 0) return results;
 
     const backfilled: Array<{ timestamp: number; value: number }> = [];
     const resultMap = new Map(results.map(r => [r.timestamp, r.value]));
@@ -262,31 +192,13 @@ function backfillCumulativeResults(
 
     const start = startTimestamp ? Math.max(startTimestamp, oldest) : oldest;
 
-    // Find the last known value
-    let lastKnownValue = currentCumulativeValue;
-    for (const result of results) {
-        if (result.value > 0) {
-            lastKnownValue = result.value;
-            break;
-        }
-    }
-
     let current = newest;
     while (current >= start) {
         const value = resultMap.get(current);
-        if (value !== undefined && value > 0) {
-            lastKnownValue = value;
-            backfilled.push({
-                timestamp: current,
-                value: value
-            });
-        } else {
-            // Use last known value for gaps
-            backfilled.push({
-                timestamp: current,
-                value: lastKnownValue
-            });
-        }
+        backfilled.push({
+            timestamp: current,
+            value: value !== undefined ? value : 0
+        });
         current = getPreviousTimestamp(current, timeInterval);
     }
 
@@ -294,9 +206,9 @@ function backfillCumulativeResults(
 }
 
 const module: IndexerModule = {
-    name: "cumulativeContracts",
+    name: "txCount",
     version: 1,
-    usesTraces: true, // We use traces for accurate contract counting
+    usesTraces: false,
     wipe,
     initialize,
     handleTxBatch,

@@ -1,8 +1,5 @@
-import type { IndexerModule } from "../lib/types";
-import { BlockDB } from "../blockFetcher/BlockDB";
-import { RpcBlock } from "../blockFetcher/evmTypes";
+import type { IndexerModule, BlockDB, RpcBlock, RegisterRoutesContext } from "../../index.ts";
 import { utils } from "@avalabs/avalanchejs";
-import { getCurrentChainConfig } from "../config";
 
 // JSON-RPC types
 interface RPCRequest {
@@ -42,7 +39,7 @@ function getBlockTraces(blocksDb: BlockDB, blockNumber: number) {
     return blocksDb.slow_getBlockTraces(blockNumber);
 }
 
-function handleRpcRequest(blocksDb: BlockDB, request: RPCRequest): RPCResponse {
+function handleRpcRequest(blocksDb: BlockDB, request: RPCRequest, dbCtx: RegisterRoutesContext): RPCResponse {
     const response: RPCResponse = { jsonrpc: request.jsonrpc || '2.0' };
     if (request.id !== undefined) {
         response.id = request.id;
@@ -80,7 +77,7 @@ function handleRpcRequest(blocksDb: BlockDB, request: RPCRequest): RPCResponse {
                 const warpAddr = '0x0200000000000000000000000000000000000005';
                 const getBlockchainIDSig = '0x4213cf78';
                 if (tag === 'latest' && callObj && callObj.to?.toLowerCase() === warpAddr && callObj.data === getBlockchainIDSig) {
-                    const bytes = utils.base58check.decode(getCurrentChainConfig().blockchainId);
+                    const bytes = utils.base58check.decode(dbCtx.getChainConfig(blocksDb.getEvmChainId()).blockchainId);
                     response.result = '0x' + Buffer.from(bytes).toString('hex');
                 } else {
                     response.error = { code: -32601, message: 'Unsupported eth_call' };
@@ -185,10 +182,10 @@ const registerRoutes: IndexerModule['registerRoutes'] = (app, dbCtx) => {
         const requests = request.body as RPCRequest | RPCRequest[];
 
         if (Array.isArray(requests)) {
-            const responses = requests.map(req => handleRpcRequest(blocksDb, req));
+            const responses = requests.map(req => handleRpcRequest(blocksDb, req, dbCtx));
             return responses;
         } else {
-            const response = handleRpcRequest(blocksDb, requests);
+            const response = handleRpcRequest(blocksDb, requests, dbCtx);
             return response;
         }
     });

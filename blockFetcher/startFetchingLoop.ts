@@ -1,10 +1,10 @@
-import { BatchRpc } from "./BatchRpc";
-import { BlockDB } from "./BlockDB";
+import { BatchRpc } from "./BatchRpc.js";
+import { BlockDB } from "./BlockDB.js";
 
 const NO_BLOCKS_PAUSE_TIME = 3 * 1000;
 const ERROR_PAUSE_TIME = 10 * 1000;
 
-export async function startFetchingLoop(blockDB: BlockDB, batchRpc: BatchRpc, blocksPerBatch: number) {
+export async function startFetchingLoop(blockDB: BlockDB, batchRpc: BatchRpc, blocksPerBatch: number, chainName: string) {
     let latestRemoteBlock = blockDB.getBlockchainLatestBlockNum()
     while (true) {//Kinda wait for readiness
         try {
@@ -31,17 +31,17 @@ export async function startFetchingLoop(blockDB: BlockDB, batchRpc: BatchRpc, bl
         if (lastStoredBlock >= latestRemoteBlock) {
             const newLatestRemoteBlock = await batchRpc.getCurrentBlockNumber();
             if (newLatestRemoteBlock === latestRemoteBlock) {
-                console.log(`No new blocks, pause before checking again ${NO_BLOCKS_PAUSE_TIME / 1000}s`);
-                
+                console.log(`[${chainName}] No new blocks, pause before checking again ${NO_BLOCKS_PAUSE_TIME / 1000}s`);
+
                 // Step 3: Perform periodic maintenance during idle gaps
                 blockDB.performPeriodicMaintenance();
-                
+
                 await new Promise(resolve => setTimeout(resolve, NO_BLOCKS_PAUSE_TIME));
                 continue;
             }
             // Update latest remote block and continue fetching
             latestRemoteBlock = newLatestRemoteBlock;
-            console.log(`Updated latest remote block to ${latestRemoteBlock}`);
+            console.log(`[${chainName}] Updated latest remote block to ${latestRemoteBlock}`);
             blockDB.setBlockchainLatestBlockNum(latestRemoteBlock);
         }
 
@@ -53,15 +53,15 @@ export async function startFetchingLoop(blockDB: BlockDB, batchRpc: BatchRpc, bl
             const blocks = await batchRpc.getBlocksWithReceipts(blockNumbers);
             blockDB.storeBlocks(blocks);
             lastStoredBlock = endBlock;
-            
+
             // Check if we just caught up and trigger maintenance if so
             blockDB.checkAndUpdateCatchUpStatus();
-            
+
             const end = performance.now();
             const blocksLeft = latestRemoteBlock - endBlock;
             const blocksPerSecond = blocks.length / (end - start) * 1000;
             const secondsLeft = blocksLeft / blocksPerSecond;
-            console.log(`Fetched ${blocks.length} blocks in ${Math.round(end - start)}ms, that's ~${Math.round(blocksPerSecond)} blocks/s, ${blocksLeft.toLocaleString()} blocks left, ~${formatSeconds(secondsLeft)} left`);
+            console.log(`[${chainName}] Fetched ${blocks.length} blocks in ${Math.round(end - start)}ms, that's ~${Math.round(blocksPerSecond)} blocks/s, ${blocksLeft.toLocaleString()} blocks left, ~${formatSeconds(secondsLeft)} left`);
         } catch (error) {
             console.error(error);
             await new Promise(resolve => setTimeout(resolve, ERROR_PAUSE_TIME));

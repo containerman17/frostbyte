@@ -1,7 +1,7 @@
-import type { IndexerModule } from "../lib/types";
-import { normalizeTimestamp, TIME_INTERVAL_HOUR, TIME_INTERVAL_DAY, TIME_INTERVAL_WEEK, TIME_INTERVAL_MONTH, getPreviousTimestamp, getTimeIntervalFromString } from "../lib/dateUtils";
+import type { IndexerModule } from "../../lib/types";
+import { normalizeTimestamp, TIME_INTERVAL_HOUR, TIME_INTERVAL_DAY, TIME_INTERVAL_WEEK, TIME_INTERVAL_MONTH, getPreviousTimestamp, getTimeIntervalFromString } from "../../lib/dateUtils";
 import { extractTransferAddresses } from "./lib/evmUtils";
-import { prepQueryCached } from "../lib/prep";
+import { prepQueryCached } from "../../lib/prep";
 import { FastifyInstance } from "fastify";
 import { Database as SqliteDatabase } from "better-sqlite3";
 

@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
-import { RpcBlock, RpcBlockTransaction, RpcTxReceipt, RpcTraceResult, StoredTx } from './evmTypes';
+import { RpcBlock, RpcBlockTransaction, RpcTxReceipt, RpcTraceResult, StoredTx } from './evmTypes.js';
 import { compress as zstdCompress, decompress as zstdDecompress, Compressor as ZstdCompressor, Decompressor as ZstdDecompressor } from 'zstd-napi';
-import { StoredBlock } from './BatchRpc';
+import { StoredBlock } from './BatchRpc.js';
 
 export class BlockDB {
     private db: InstanceType<typeof Database>;

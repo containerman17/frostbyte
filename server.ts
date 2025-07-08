@@ -1,14 +1,12 @@
-import { BlockDB } from './blockFetcher/BlockDB';
+import { BlockDB } from './blockFetcher/BlockDB.js';
 import Fastify, { FastifyInstance } from 'fastify';
 import Sqlite3 from 'better-sqlite3';
-import { initializeIndexingDB } from './lib/dbHelper';
-import { loadPlugins } from './lib/plugins';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import fs from 'node:fs';
-import { findIndexerDatabase, getBlocksDbPath, getIndexerDbPath } from './lib/dbPaths';
-import { ChainConfig } from './config';
+import { initializeIndexingDB } from './lib/dbHelper.js';
+import { loadPlugins } from './lib/plugins.js';
+import { getBlocksDbPath, getIndexerDbPath } from './lib/dbPaths.js';
+import { ChainConfig } from './config.js';
 import Database from 'better-sqlite3';
+import { getPluginDirs } from './config.js';
 
 const docsPage = `
 <!doctype html>
@@ -33,8 +31,7 @@ const docsPage = `
 `;
 
 export async function createApiServer(chainConfigs: ChainConfig[]) {
-    const __dirname = path.dirname(fileURLToPath(import.meta.url));
-    const indexers = await loadPlugins([path.join(__dirname, 'pluginExamples')]);
+    const indexers = await loadPlugins(getPluginDirs());
 
     const app: FastifyInstance = Fastify({ logger: false });
 
@@ -100,10 +97,19 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
         return indexingDb;
     }
 
+    function getChainConfig(evmChainId: number): ChainConfig {
+        const chainConfig = chainConfigs.find(c => c.evmChainId === evmChainId);
+        if (!chainConfig) {
+            throw new Error(`Chain config not found for evmChainId: ${evmChainId}`);
+        }
+        return chainConfig;
+    }
+
     for (const indexer of indexers) {
         indexer.registerRoutes(app, {
             blocksDbFactory: getBlocksDb,
-            indexerDbFactory: (evmChainId: number) => getIndexerDb(evmChainId, indexer.name, indexer.version)
+            indexerDbFactory: (evmChainId: number) => getIndexerDb(evmChainId, indexer.name, indexer.version),
+            getChainConfig: getChainConfig
         });
     }
 

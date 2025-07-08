@@ -1,13 +1,13 @@
 import cluster, { Worker } from 'node:cluster';
 import fs from 'node:fs';
 import path from 'node:path';
-import { BlockDB } from './blockFetcher/BlockDB';
-import { startFetchingLoop } from './blockFetcher/startFetchingLoop';
-import { BatchRpc } from './blockFetcher/BatchRpc';
-import { DATA_DIR, CHAIN_CONFIGS, getCurrentChainConfig } from './config';
-import { createApiServer } from './server';
-import { startSingleIndexer, getAvailableIndexers } from './indexer';
-import { awaitIndexerDatabases, getBlocksDbPath } from './lib/dbPaths';
+import { BlockDB } from './blockFetcher/BlockDB.js';
+import { startFetchingLoop } from './blockFetcher/startFetchingLoop.js';
+import { BatchRpc } from './blockFetcher/BatchRpc.js';
+import { DATA_DIR, CHAIN_CONFIGS, getCurrentChainConfig } from './config.js';
+import { createApiServer } from './server.js';
+import { startSingleIndexer, getAvailableIndexers } from './indexer.js';
+import { awaitIndexerDatabases, getBlocksDbPath } from './lib/dbPaths.js';
 
 if (cluster.isPrimary) {
     const roles = process.env['ROLES']?.split(',') || ['fetcher', 'api', 'indexer'];
@@ -80,7 +80,7 @@ if (cluster.isPrimary) {
         const blocksDbPath = getBlocksDbPath(chainConfig.blockchainId, chainConfig.rpcConfig.rpcSupportsDebug);
         const blocksDb = new BlockDB({ path: blocksDbPath, isReadonly: false, hasDebug: chainConfig.rpcConfig.rpcSupportsDebug });
         const batchRpc = new BatchRpc(chainConfig.rpcConfig);
-        startFetchingLoop(blocksDb, batchRpc, chainConfig.rpcConfig.blocksPerBatch);
+        startFetchingLoop(blocksDb, batchRpc, chainConfig.rpcConfig.blocksPerBatch, chainConfig.chainName);
     } else if (process.env['ROLE'] === 'api') {
         for (let config of CHAIN_CONFIGS) {
             console.log(`Waiting for indexer databases for ${config.chainName}...`);

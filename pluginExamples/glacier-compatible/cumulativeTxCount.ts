@@ -1,6 +1,6 @@
-import type { IndexerModule } from "../lib/types";
-import { normalizeTimestamp, TIME_INTERVAL_HOUR, TIME_INTERVAL_DAY, TIME_INTERVAL_WEEK, TIME_INTERVAL_MONTH, getPreviousTimestamp, getTimeIntervalFromString } from "../lib/dateUtils";
-import { prepQueryCached } from "../lib/prep";
+import type { IndexerModule } from "../../lib/types";
+import { normalizeTimestamp, TIME_INTERVAL_HOUR, TIME_INTERVAL_DAY, TIME_INTERVAL_WEEK, TIME_INTERVAL_MONTH, getPreviousTimestamp, getTimeIntervalFromString } from "../../lib/dateUtils";
+import { prepQueryCached } from "../../lib/prep";
 
 // Wipe function - reset all data
 const wipe: IndexerModule["wipe"] = (db) => {

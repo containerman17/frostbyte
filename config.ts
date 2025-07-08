@@ -56,3 +56,12 @@ export function getCurrentChainConfig(): ChainConfig {
     }
     return chain;
 }
+
+export function getPluginDirs(): string[] {
+    const PLUGIN_DIRS = process.env['PLUGIN_DIRS'];
+    if (!PLUGIN_DIRS) {
+        throw new Error('PLUGIN_DIRS is not set');
+    }
+    // Split by comma or semicolon to support multiple directories
+    return PLUGIN_DIRS.split(/[,;]/).map(dir => dir.trim()).filter(dir => dir.length > 0);
+}

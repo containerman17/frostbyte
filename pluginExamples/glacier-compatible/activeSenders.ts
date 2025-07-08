@@ -1,53 +1,114 @@
-import type { IndexerModule } from "../lib/types";
-import { normalizeTimestamp, TIME_INTERVAL_HOUR, TIME_INTERVAL_DAY, TIME_INTERVAL_WEEK, TIME_INTERVAL_MONTH, getPreviousTimestamp, getTimeIntervalFromString } from "../lib/dateUtils";
-import { prepQueryCached } from "../lib/prep";
+import type { IndexerModule } from "../../lib/types";
+import { normalizeTimestamp, TIME_INTERVAL_HOUR, TIME_INTERVAL_DAY, TIME_INTERVAL_WEEK, TIME_INTERVAL_MONTH, getPreviousTimestamp, getTimeIntervalFromString } from "../../lib/dateUtils";
+import { extractTransferAddresses } from "./lib/evmUtils";
+import { prepQueryCached } from "../../lib/prep";
 
 // Wipe function - reset all data
 const wipe: IndexerModule["wipe"] = (db) => {
-    db.exec(`DROP TABLE IF EXISTS tx_counts`);
+    db.exec(`DROP TABLE IF EXISTS active_senders`);
+    db.exec(`DROP TABLE IF EXISTS active_senders_count`);
 };
 
 // Initialize function - set up tables
 const initialize: IndexerModule["initialize"] = (db) => {
+    // Table to track unique senders per time period
     db.exec(`
-        CREATE TABLE IF NOT EXISTS tx_counts (
+        CREATE TABLE IF NOT EXISTS active_senders (
             time_interval INTEGER NOT NULL,
-            timestamp INTEGER NOT NULL,
+            period_timestamp INTEGER NOT NULL,
+            address TEXT NOT NULL,
+            PRIMARY KEY (time_interval, period_timestamp, address)
+        ) WITHOUT ROWID
+    `);
+
+    // Index for efficient counting
+    db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_active_senders_period 
+        ON active_senders(time_interval, period_timestamp)
+    `);
+
+    // Pre-aggregated counts for performance
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS active_senders_count (
+            time_interval INTEGER NOT NULL,
+            period_timestamp INTEGER NOT NULL,
             count INTEGER NOT NULL,
-            PRIMARY KEY (time_interval, timestamp)
+            PRIMARY KEY (time_interval, period_timestamp)
         ) WITHOUT ROWID
     `);
 };
 
 // Handle transaction batch
 const handleTxBatch: IndexerModule["handleTxBatch"] = (db, _blocksDb, batch) => {
-    const stmt = prepQueryCached(db, `
-            INSERT INTO tx_counts (time_interval, timestamp, count)
-            VALUES (?, ?, ?)
-            ON CONFLICT(time_interval, timestamp)
-            DO UPDATE SET count = count + ?
-        `);
+    // Temporary table for batch operations
+    db.exec(`
+        CREATE TEMP TABLE IF NOT EXISTS temp_senders (
+            time_interval INTEGER,
+            period_timestamp INTEGER,
+            address TEXT,
+            PRIMARY KEY (time_interval, period_timestamp, address)
+        ) WITHOUT ROWID
+    `);
 
-    // Count transactions per time period
-    const periodCounts = new Map<string, number>();
+    const tempStmt = prepQueryCached(db, `
+        INSERT OR IGNORE INTO temp_senders (time_interval, period_timestamp, address) 
+        VALUES (?, ?, ?)
+    `);
+
+    // Collect senders per time period
+    const periodSenders = new Map<string, Set<string>>();
 
     for (const tx of batch.txs) {
         const blockTimestamp = tx.blockTs;
 
-        // Update counts for each time interval
+        // Collect transaction sender
+        const senders = new Set<string>();
+        senders.add(tx.tx.from);
+
+        // Extract Transfer event senders
+        const transferAddresses = extractTransferAddresses(tx.receipt.logs);
+        for (const sender of transferAddresses.senders) {
+            senders.add(sender);
+        }
+
+        // Add to period maps
         for (const timeInterval of [TIME_INTERVAL_HOUR, TIME_INTERVAL_DAY, TIME_INTERVAL_WEEK, TIME_INTERVAL_MONTH]) {
-            const normalizedTimestamp = normalizeTimestamp(blockTimestamp, timeInterval);
-            const key = `${timeInterval},${normalizedTimestamp}`;
-            periodCounts.set(key, (periodCounts.get(key) || 0) + 1);
+            const periodTimestamp = normalizeTimestamp(blockTimestamp, timeInterval);
+            const key = `${timeInterval},${periodTimestamp}`;
+
+            if (!periodSenders.has(key)) {
+                periodSenders.set(key, new Set<string>());
+            }
+
+            for (const sender of senders) {
+                periodSenders.get(key)!.add(sender);
+                tempStmt.run(timeInterval, periodTimestamp, sender);
+            }
         }
     }
 
-    // Apply all updates
-    for (const [key, count] of periodCounts) {
-        const [timeInterval, timestamp] = key.split(',').map(Number);
-        stmt.run(timeInterval, timestamp, count, count);
-    }
+    // Bulk insert from temp table to main table
+    db.exec(`
+        INSERT OR IGNORE INTO active_senders (time_interval, period_timestamp, address)
+        SELECT time_interval, period_timestamp, address FROM temp_senders
+    `);
 
+    // Update counts
+    db.exec(`
+        INSERT OR REPLACE INTO active_senders_count (time_interval, period_timestamp, count)
+        SELECT 
+            time_interval,
+            period_timestamp,
+            COUNT(DISTINCT address)
+        FROM active_senders
+        WHERE (time_interval, period_timestamp) IN (
+            SELECT DISTINCT time_interval, period_timestamp FROM temp_senders
+        )
+        GROUP BY time_interval, period_timestamp
+    `);
+
+    // Clean up temp table
+    db.exec(`DROP TABLE temp_senders`);
 };
 
 // Register routes
@@ -98,11 +159,11 @@ const registerRoutes: IndexerModule["registerRoutes"] = (app, dbCtx) => {
         required: ['results']
     };
 
-    app.get('/:evmChainId/metrics/txCount', {
+    app.get('/:evmChainId/metrics/activeSenders', {
         schema: {
-            description: 'Get transaction count data',
+            description: 'Get active senders data',
             tags: ['Metrics'],
-            summary: 'Get transaction count data',
+            summary: 'Get active senders metric data',
             params: paramsSchema,
             querystring: querySchema,
             response: {
@@ -135,25 +196,25 @@ const registerRoutes: IndexerModule["registerRoutes"] = (app, dbCtx) => {
         const validPageSize = Math.min(Math.max(pageSize, 1), 2160);
 
         // Build query
-        let query = `SELECT timestamp, count as value FROM tx_counts WHERE time_interval = ?`;
+        let query = `SELECT period_timestamp as timestamp, count as value FROM active_senders_count WHERE time_interval = ?`;
         const params: any[] = [timeIntervalId];
 
         if (startTimestamp) {
-            query += ` AND timestamp >= ?`;
+            query += ` AND period_timestamp >= ?`;
             params.push(startTimestamp);
         }
 
         if (endTimestamp) {
-            query += ` AND timestamp <= ?`;
+            query += ` AND period_timestamp <= ?`;
             params.push(endTimestamp);
         }
 
         if (pageToken) {
-            query += ` AND timestamp < ?`;
+            query += ` AND period_timestamp < ?`;
             params.push(parseInt(pageToken));
         }
 
-        query += ` ORDER BY timestamp DESC LIMIT ?`;
+        query += ` ORDER BY period_timestamp DESC LIMIT ?`;
         params.push(validPageSize + 1);
 
         const results = prepQueryCached(db, query).all(...params) as Array<{ timestamp: number; value: number }>;
@@ -206,7 +267,7 @@ function backfillResults(
 }
 
 const module: IndexerModule = {
-    name: "txCount",
+    name: "activeSenders",
     version: 1,
     usesTraces: false,
     wipe,
