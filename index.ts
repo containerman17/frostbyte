@@ -6,6 +6,8 @@ export type { IndexerModule, RegisterRoutesContext } from './lib/types';
 // Types that are passed to plugin methods
 export type { RpcBlock, RpcBlockTransaction, RpcTxReceipt, RpcTraceResult, StoredTx } from './blockFetcher/evmTypes';
 
+export type { ChainConfig, RpcConfigWithBlockSize } from './config';
+
 // Re-export third-party types that plugins receive
 export type { Database } from 'better-sqlite3';
 export type { FastifyInstance } from 'fastify';
