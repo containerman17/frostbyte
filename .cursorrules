@@ -1,6 +1,20 @@
 **Errors** Always let errors bubble up unless you are in a retry loop for
 network/RPC calls—never catch and continue. If anything fails, crash immediately
-to ensure data integrity and clear visibility of problems. Always print error s
+to ensure data integrity and clear visibility of problems. Always print errors.
 
-**New product** Do not write compatibility layers with old versions, for now
-treat every deployment like a completely fresh deployment.
+**New product**: Do not write compatibility layers with old versions; for now,
+treat every deployment as a completely fresh deployment.
+
+**I will run it myself**: Do not test, do not run anything, just write. I will test manually.
+
+Do not add tags and summary field on fastify api specs.
+
+Indexers have to accumulate changes in ram and then dump to the database alltogether in the end. 
+
+Transactions in handleTxBatch have tx.blockTs field 
+
+handleTxBatch are already wrapped in a tx, no need for tramsactions inside handleTxBatch
+
+Any chain-specific requests should start with /{evmChainId}/
+
+Don't forget to bump indexer version if you did any changes to indexing logic or db structure

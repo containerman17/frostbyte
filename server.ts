@@ -52,7 +52,20 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
         availableIndexers.set(indexer.name, indexer.version);
     }
 
-    const app: FastifyInstance = Fastify({ logger: false });
+    const app: FastifyInstance = Fastify({
+        logger: {
+            level: 'info',
+            transport: {
+                target: 'pino-pretty',
+                options: {
+                    translateTime: 'HH:MM:ss Z',
+                    ignore: 'pid,hostname',
+                    colorize: true,
+                    singleLine: true
+                }
+            }
+        }
+    });
 
     // Register swagger plugin
     await app.register(import('@fastify/swagger'), {
