@@ -1,4 +1,4 @@
-import type { IndexerModule, BlockDB, RpcBlock, RegisterRoutesContext } from "../index";
+import type { IndexerModule, BlockDB, RegisterRoutesContext, evmTypes } from "../index";
 import { utils } from "@avalabs/avalanchejs";
 
 // JSON-RPC types
@@ -27,7 +27,7 @@ function parseBlockNumber(param: string | number | undefined, blocksDb: BlockDB)
     return parseInt(param, 10);
 }
 
-function getBlockByNumber(blocksDb: BlockDB, blockNumber: number): RpcBlock | null {
+function getBlockByNumber(blocksDb: BlockDB, blockNumber: number): evmTypes.RpcBlock | null {
     return blocksDb.slow_getBlockWithTransactions(blockNumber);
 }
 
