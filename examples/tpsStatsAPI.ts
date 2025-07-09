@@ -1,4 +1,5 @@
 import type { ApiPlugin } from "../index";
+import { decompress as zstdDecompress } from 'zstd-napi';
 
 type TpsStats = {
     blockchainId: string;
@@ -41,6 +42,7 @@ const module: ApiPlugin = {
             for (const config of configs) {
                 try {
                     const blocksDb = dbCtx.blocksDbFactory(config.evmChainId);
+                    const db = blocksDb.getDatabase();
                     
                     // Get the latest block number
                     const latestBlockNum = blocksDb.getLastStoredBlockNumber();
@@ -55,62 +57,71 @@ const module: ApiPlugin = {
                         continue;
                     }
                     
-                    let txCount = 0;
-                    let currentBlockNum = latestBlockNum;
-                    let oldestBlockTimestamp = now;
+                    // First, find the approximate block range for the last 24 hours
+                    // We'll sample a few blocks to find the timestamp range
+                    const sampleStmt = db.prepare(`
+                        SELECT number, data, codec
+                        FROM blocks 
+                        WHERE number IN (
+                            SELECT number FROM blocks 
+                            WHERE number % ? = 0 
+                            ORDER BY number DESC 
+                            LIMIT 100
+                        )
+                        ORDER BY number DESC
+                    `);
                     
-                    // Iterate backwards through blocks until we find one older than 24 hours
-                    // We'll sample blocks to find the approximate range first
-                    const blocksToCheck = Math.min(latestBlockNum + 1, 50000); // Limit iterations
-                    const sampleSize = Math.min(100, Math.max(10, Math.floor(blocksToCheck / 100)));
+                    // Sample every 100th block
+                    const sampledBlocks = sampleStmt.all(100) as Array<{ number: number; data: Buffer; codec: number }>;
                     
-                    // Binary search to find approximate block from 24 hours ago
-                    let lowBlock = Math.max(0, latestBlockNum - blocksToCheck);
-                    let highBlock = latestBlockNum;
-                    let targetBlock = lowBlock;
+                    let startBlockNum = 0;
+                    let oldestTimestampInRange = now;
                     
-                    // Do a few binary search iterations to narrow down the range
-                    for (let i = 0; i < 10 && lowBlock < highBlock - sampleSize; i++) {
-                        const midBlock = Math.floor((lowBlock + highBlock) / 2);
-                        const block = blocksDb.slow_getBlockWithTransactions(midBlock);
-                        
-                        if (block) {
-                            const blockTimestamp = parseInt(block.timestamp, 16);
-                            if (blockTimestamp > twentyFourHoursAgo) {
-                                highBlock = midBlock;
-                            } else {
-                                lowBlock = midBlock;
-                                targetBlock = midBlock;
-                            }
+                    // Find the first block older than 24 hours ago
+                    for (const row of sampledBlocks) {
+                        let decompressedData: Buffer;
+                        if (row.codec === 0) {
+                            decompressedData = zstdDecompress(row.data);
                         } else {
-                            // Block not found, adjust range
-                            highBlock = midBlock - 1;
+                            // Skip dict-compressed blocks for now
+                            continue;
                         }
-                    }
-                    
-                    // Now count transactions from targetBlock to latestBlockNum
-                    // We'll process in chunks to avoid loading too many blocks
-                    const chunkSize = 100;
-                    
-                    for (let blockNum = targetBlock; blockNum <= latestBlockNum; blockNum += chunkSize) {
-                        const endBlock = Math.min(blockNum + chunkSize - 1, latestBlockNum);
                         
-                        for (let b = blockNum; b <= endBlock; b++) {
-                            const block = blocksDb.slow_getBlockWithTransactions(b);
-                            if (block) {
-                                const blockTimestamp = parseInt(block.timestamp, 16);
-                                
-                                // Only count transactions from blocks within the last 24 hours
-                                if (blockTimestamp >= twentyFourHoursAgo) {
-                                    txCount += block.transactions.length;
-                                    oldestBlockTimestamp = Math.min(oldestBlockTimestamp, blockTimestamp);
-                                }
+                        const block = JSON.parse(decompressedData.toString());
+                        const blockTimestamp = parseInt(block.timestamp, 16);
+                        
+                        if (blockTimestamp < twentyFourHoursAgo) {
+                            // Found a block older than 24 hours, use the next sampled block as start
+                            const prevIndex = sampledBlocks.indexOf(row) - 1;
+                            if (prevIndex >= 0 && sampledBlocks[prevIndex]) {
+                                startBlockNum = sampledBlocks[prevIndex].number;
+                            } else {
+                                startBlockNum = row.number + 1;
                             }
+                            break;
                         }
+                        
+                        oldestTimestampInRange = Math.min(oldestTimestampInRange, blockTimestamp);
                     }
                     
-                    // Calculate actual time span in seconds
-                    const actualTimeSpan = Math.max(1, now - oldestBlockTimestamp);
+                    // If all sampled blocks are within 24 hours, start from block 0
+                    if (startBlockNum === 0 && sampledBlocks.length > 0) {
+                        const lastSampledBlock = sampledBlocks[sampledBlocks.length - 1];
+                        startBlockNum = Math.max(0, (lastSampledBlock?.number ?? 0) - 100);
+                    }
+                    
+                    // Now count transactions in the range
+                    const countStmt = db.prepare(`
+                        SELECT COUNT(*) as tx_count
+                        FROM txs
+                        WHERE block_num >= ? AND block_num <= ?
+                    `);
+                    
+                    const result = countStmt.get(startBlockNum, latestBlockNum) as { tx_count: number };
+                    const txCount = result.tx_count;
+                    
+                    // Calculate TPS based on actual time range
+                    const actualTimeSpan = Math.max(1, now - oldestTimestampInRange);
                     const tps = txCount / actualTimeSpan;
                     
                     results.push({

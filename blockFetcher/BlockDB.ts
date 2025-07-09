@@ -438,6 +438,15 @@ export class BlockDB {
         }
     }
 
+    /**
+     * Get direct access to the underlying database for custom queries.
+     * USE WITH CAUTION: This bypasses all abstractions and safety checks.
+     * @returns The better-sqlite3 database instance
+     */
+    getDatabase(): InstanceType<typeof Database> {
+        return this.db;
+    }
+
     getTxBatch(greaterThanTxNum: number, limit: number, includeTraces: boolean): { txs: StoredTx[], traces: RpcTraceResult[] | undefined } {
         const selectTxs = this.prepQuery(`
             SELECT tx_num, data, traces, codec 
