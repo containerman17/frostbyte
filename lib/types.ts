@@ -9,13 +9,13 @@ import { ChainConfig } from "../config";
 
 export interface RegisterRoutesContext {
     blocksDbFactory: (evmChainId: number) => BlockDB;
-    indexerDbFactory: (evmChainId: number) => SQLite.Database;
+    indexerDbFactory: (evmChainId: number, indexerName: string) => SQLite.Database;
     getChainConfig: (evmChainId: number) => ChainConfig;
     getAllChainConfigs: () => ChainConfig[];
 }
 
-/** All plugin files must export these symbols. */
-export interface IndexerModule {
+/** Indexing plugin - processes blockchain data and stores in its own database */
+export interface IndexingPlugin {
     name: string;          // unique slug, no whitespaces only a-z0-9-_
     version: number;       // bump → wipe() runs
     usesTraces: boolean;   // if true, traces are included in the batch, that's 3x slower
@@ -31,6 +31,13 @@ export interface IndexerModule {
         blocksDb: BlockDB,
         batch: { txs: StoredTx[]; traces: RpcTraceResult[] | undefined },
     ) => void | Promise<void>;
+}
+
+/** API plugin - provides REST endpoints using data from specified indexer databases */
+export interface ApiPlugin {
+    name: string;          // unique slug for the API plugin
+    /** List of indexer names whose databases this API plugin needs access to */
+    requiredIndexers: string[];
 
     registerRoutes: (app: FastifyInstance, dbCtx: RegisterRoutesContext) => void;
 }

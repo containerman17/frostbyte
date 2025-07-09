@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-export async function createPluginTemplate(name: string, pluginsDir: string) {
+export async function createPluginTemplate(name: string, pluginsDir: string, type: 'indexing' | 'api' = 'indexing') {
     const pluginPath = path.join(pluginsDir, `${name}.ts`);
 
     // Create plugins directory if it doesn't exist
@@ -14,9 +14,12 @@ export async function createPluginTemplate(name: string, pluginsDir: string) {
         throw new Error(`Plugin ${name} already exists at ${pluginPath}`);
     }
 
-    const template = `import { type IndexerModule, prepQueryCached } from "frostbyte-sdk";
+    let template: string;
 
-const module: IndexerModule = {
+    if (type === 'indexing') {
+        template = `import { type IndexingPlugin, prepQueryCached } from "frostbyte-sdk";
+
+const module: IndexingPlugin = {
     name: "${name}",
     version: 1,
     usesTraces: false,
@@ -45,11 +48,21 @@ const module: IndexerModule = {
         prepQueryCached(db, \`
             UPDATE ${name}_data SET total_count = total_count + ? WHERE id = 1
         \`).run(txCount);
-    },
+    }
+};
+
+export default module;
+`;
+    } else {
+        template = `import { type ApiPlugin, prepQueryCached } from "frostbyte-sdk";
+
+const module: ApiPlugin = {
+    name: "${name}",
+    requiredIndexers: ["${name}-indexer"], // List the indexers this API needs
     
     // Add API endpoints
     registerRoutes: (app, dbCtx) => {
-        app.get('/:evmChainId/${name}/total', {
+        app.get('/:evmChainId/${name}/stats', {
             schema: {
                 params: {
                     type: 'object',
@@ -70,10 +83,11 @@ const module: IndexerModule = {
             }
         }, async (request, reply) => {
             const { evmChainId } = request.params as { evmChainId: number };
-            const db = dbCtx.indexerDbFactory(evmChainId);
+            // Get the database for the indexer we depend on
+            const db = dbCtx.indexerDbFactory(evmChainId, "${name}-indexer");
 
             const result = prepQueryCached(db, \`
-                SELECT total_count FROM ${name}_data WHERE id = 1
+                SELECT total_count FROM ${name}_indexer_data WHERE id = 1
             \`).get() as { total_count: number } | undefined;
 
             return {
@@ -85,10 +99,17 @@ const module: IndexerModule = {
 
 export default module;
 `;
+    }
 
     fs.writeFileSync(pluginPath, template);
-    console.log(`✅ Created plugin: ${pluginPath}`);
+    console.log(`✅ Created ${type} plugin: ${pluginPath}`);
     console.log(`\nNext steps:`);
-    console.log(`1. Edit the plugin to add your indexing logic`);
-    console.log(`2. Run: frostbyte run --plugins-dir ${pluginsDir}`);
+    if (type === 'indexing') {
+        console.log(`1. Edit the plugin to add your indexing logic`);
+        console.log(`2. Run: frostbyte run --plugins-dir ${pluginsDir}`);
+    } else {
+        console.log(`1. Edit the plugin to specify which indexers it needs`);
+        console.log(`2. Update the API endpoints to query the indexer databases`);
+        console.log(`3. Run: frostbyte run --plugins-dir ${pluginsDir}`);
+    }
 } 

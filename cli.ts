@@ -26,6 +26,12 @@ const argv = yargs(hideBin(process.argv))
             type: 'string',
             demandOption: true,
         },
+        type: {
+            describe: 'Type of plugin to create',
+            type: 'string',
+            choices: ['indexing', 'api'],
+            default: 'indexing',
+        },
         'plugins-dir': {
             describe: 'Directory to create the plugin in',
             type: 'string',
@@ -84,7 +90,7 @@ async function main() {
             process.exit(code || 0);
         });
     } else if (command === 'init') {
-        await createPluginTemplate(argv.name, argv['plugins-dir']);
+        await createPluginTemplate(argv.name, argv['plugins-dir'], argv.type as 'indexing' | 'api');
     }
 }
 

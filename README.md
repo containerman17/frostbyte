@@ -11,10 +11,13 @@ npm install -g frostbyte-sdk
 ## Quick Start
 
 ```bash
-# Create a new plugin
-frostbyte init --name my-indexer
+# Create a new indexing plugin
+frostbyte init --name my-indexer --type indexing
 
-# Run the indexer
+# Create a new API plugin
+frostbyte init --name my-api --type api
+
+# Run the indexer and API server
 frostbyte run --plugins-dir ./plugins --data-dir ./data
 ```
 
@@ -65,12 +68,17 @@ Example directory structure:
 
 ## Writing Plugins
 
-Plugins are TypeScript files that implement the `IndexerModule` interface:
+frostbyte supports two types of plugins:
+
+### Indexing Plugins
+
+Indexing plugins process blockchain data and store it in their own SQLite
+database:
 
 ```typescript
-import type { IndexerModule } from "frostbyte-sdk";
+import type { IndexingPlugin } from "frostbyte-sdk";
 
-const module: IndexerModule = {
+const module: IndexingPlugin = {
     name: "my-indexer",
     version: 1,
     usesTraces: false,
@@ -91,17 +99,43 @@ const module: IndexerModule = {
             // Index transaction data
         }
     },
+};
 
-    // Optional: Add API endpoints
+export default module;
+```
+
+### API Plugins
+
+API plugins serve REST endpoints using data from indexer databases:
+
+```typescript
+import type { ApiPlugin } from "frostbyte-sdk";
+
+const module: ApiPlugin = {
+    name: "my-api",
+    requiredIndexers: ["my-indexer"], // Declare which indexers this API needs
+
     registerRoutes: (app, dbCtx) => {
         app.get("/:evmChainId/my-endpoint", async (request, reply) => {
-            // Handle API request
+            const { evmChainId } = request.params;
+            // Access the indexer's database
+            const db = dbCtx.indexerDbFactory(evmChainId, "my-indexer");
+            // Query and return data
         });
     },
 };
 
 export default module;
 ```
+
+### Built-in API Plugins
+
+frostbyte includes two standard API plugins that are always available:
+
+- **chains**: Provides `/chains` endpoint showing status of all configured
+  chains
+- **rpc**: Provides `/:evmChainId/rpc` JSON-RPC endpoint for querying blockchain
+  data
 
 ## Configuration
 
@@ -133,7 +167,18 @@ Create `chains.json` in your data directory:
 ### `frostbyte init`
 
 - `--name` (required): Plugin name
+- `--type`: Plugin type - `indexing` or `api` (default: `indexing`)
 - `--plugins-dir`: Where to create the plugin (default: `./plugins`)
+
+Examples:
+
+```bash
+# Create an indexing plugin
+frostbyte init --name my-indexer --type indexing
+
+# Create an API plugin
+frostbyte init --name my-api --type api
+```
 
 ## License
 

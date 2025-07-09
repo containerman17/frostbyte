@@ -89,7 +89,7 @@ if (cluster.isPrimary) {
             awaitIndexerDatabases(dbDir, config.rpcConfig.rpcSupportsDebug);
         }
         const apiServer = await createApiServer(CHAIN_CONFIGS);
-        const port = parseInt(process.env['PORT'] || '3000', 10);
+        const port = parseInt(process.env['PORT'] || '3080', 10);
         await apiServer.start(port);
     } else if (process.env['ROLE'] === 'indexer') {
         const chainConfig = getCurrentChainConfig();

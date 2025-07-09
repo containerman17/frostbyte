@@ -1,7 +1,7 @@
 // Main exports for frostbyte plugin developers
 
-// The main interface plugins must implement
-export type { IndexerModule, RegisterRoutesContext } from './lib/types';
+// The main interfaces plugins must implement
+export type { IndexingPlugin, ApiPlugin, RegisterRoutesContext } from './lib/types';
 
 // Types that are passed to plugin methods
 export * as evmTypes from './blockFetcher/evmTypes';
@@ -19,11 +19,5 @@ export type { BlockDB } from './blockFetcher/BlockDB';
 export * as dateUtils from "./lib/dateUtils";
 export * as encodingUtils from "./lib/encodingUtils";
 
-import { IndexerModule } from './lib/types';
-import rpcModule from './std/rpc';
-import chainsModule from './std/chains';
-
-export namespace StandardIndexers {
-    export const RPCIndexer: IndexerModule = rpcModule;
-    export const ChainsIndexer: IndexerModule = chainsModule;
-}
+export { default as RPCIndexerAPIPlugin } from './standardPlugins/rpcApi';
+export { default as ChainsIndexerAPIPlugin } from './standardPlugins/chainsApi';

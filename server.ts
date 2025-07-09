@@ -2,11 +2,14 @@ import { BlockDB } from './blockFetcher/BlockDB.js';
 import Fastify, { FastifyInstance } from 'fastify';
 import Sqlite3 from 'better-sqlite3';
 import { initializeIndexingDB } from './lib/dbHelper.js';
-import { loadPlugins } from './lib/plugins.js';
+import { loadApiPlugins, loadIndexingPlugins } from './lib/plugins.js';
 import { getBlocksDbPath, getIndexerDbPath } from './lib/dbPaths.js';
 import { ChainConfig } from './config.js';
 import Database from 'better-sqlite3';
 import { getPluginDirs } from './config.js';
+import fs from 'node:fs';
+import chainsApiPlugin from './standardPlugins/chainsApi.js';
+import rpcApiPlugin from './standardPlugins/rpcApi.js';
 
 const docsPage = `
 <!doctype html>
@@ -31,7 +34,23 @@ const docsPage = `
 `;
 
 export async function createApiServer(chainConfigs: ChainConfig[]) {
-    const indexers = await loadPlugins(getPluginDirs());
+    // Load both types of plugins
+    const loadedApiPlugins = await loadApiPlugins(getPluginDirs());
+    const indexingPlugins = await loadIndexingPlugins(getPluginDirs());
+
+    // Standard API plugins are always included
+    const standardApiPlugins = [chainsApiPlugin, rpcApiPlugin];
+
+    // Combine standard and loaded API plugins
+    const apiPlugins = [...standardApiPlugins, ...loadedApiPlugins];
+
+    console.log(`Loaded ${standardApiPlugins.length} standard API plugins and ${loadedApiPlugins.length} custom API plugins`);
+
+    // Create a map of available indexers for validation
+    const availableIndexers = new Map<string, number>();
+    for (const indexer of indexingPlugins) {
+        availableIndexers.set(indexer.name, indexer.version);
+    }
 
     const app: FastifyInstance = Fastify({ logger: false });
 
@@ -81,7 +100,12 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
     }
 
     const indexerDbCache = new Map<string, Sqlite3.Database>();
-    function getIndexerDb(evmChainId: number, indexerName: string, indexerVersion: number): Sqlite3.Database {
+    function getIndexerDb(evmChainId: number, indexerName: string): Sqlite3.Database {
+        const indexerVersion = availableIndexers.get(indexerName);
+        if (indexerVersion === undefined) {
+            throw new Error(`Indexer "${indexerName}" not found in available indexers`);
+        }
+
         const key = `${evmChainId}-${indexerName}-${indexerVersion}`;
         if (indexerDbCache.has(key)) {
             return indexerDbCache.get(key)!;
@@ -91,7 +115,13 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
             throw new Error(`Chain config not found for evmChainId: ${evmChainId}`);
         }
         const indexerDbPath = getIndexerDbPath(chainConfig.blockchainId, indexerName, indexerVersion, chainConfig.rpcConfig.rpcSupportsDebug);
-        const indexingDb = new Database(indexerDbPath, { readonly: false });
+
+        // Check if the database exists
+        if (!fs.existsSync(indexerDbPath)) {
+            throw new Error(`Database for indexer "${indexerName}" not found at ${indexerDbPath}. Make sure the indexer has run at least once.`);
+        }
+
+        const indexingDb = new Database(indexerDbPath, { readonly: true });
         initializeIndexingDB({ db: indexingDb, isReadonly: true });
         indexerDbCache.set(key, indexingDb);
         return indexingDb;
@@ -108,20 +138,30 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
         return [...chainConfigs];
     }
 
-    for (const indexer of indexers) {
-        console.log(`Registering routes for indexer "${indexer.name}"`);
+    // Validate and register API plugins
+    for (const apiPlugin of apiPlugins) {
+        console.log(`Validating API plugin "${apiPlugin.name}"`);
+
+        // Check that all required indexers are available
+        for (const requiredIndexer of apiPlugin.requiredIndexers) {
+            if (!availableIndexers.has(requiredIndexer)) {
+                throw new Error(`API plugin "${apiPlugin.name}" requires indexer "${requiredIndexer}" which is not available`);
+            }
+        }
+
+        console.log(`Registering routes for API plugin "${apiPlugin.name}"`);
         try {
-            indexer.registerRoutes(app, {
+            apiPlugin.registerRoutes(app, {
                 blocksDbFactory: getBlocksDb,
-                indexerDbFactory: (evmChainId: number) => getIndexerDb(evmChainId, indexer.name, indexer.version),
+                indexerDbFactory: getIndexerDb,
                 getChainConfig: getChainConfig,
                 getAllChainConfigs: getAllChainConfigs
             });
         } catch (error) {
-            console.error(`Failed to register routes for indexer "${indexer.name}":`, error);
-            throw new Error(`Indexer "${indexer.name}" route registration failed: ${error instanceof Error ? error.message : String(error)}`);
+            console.error(`Failed to register routes for API plugin "${apiPlugin.name}":`, error);
+            throw new Error(`API plugin "${apiPlugin.name}" route registration failed: ${error instanceof Error ? error.message : String(error)}`);
         }
-        console.log(`Routes registered for indexer "${indexer.name}"`);
+        console.log(`Routes registered for API plugin "${apiPlugin.name}"`);
     }
 
     // Add route to serve OpenAPI JSON
@@ -153,10 +193,10 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
 
     return {
         app,
-        start: async (port = 3000) => {
+        start: async (port: number) => {
             try {
                 await app.listen({ port, host: '0.0.0.0' });
-                console.log(`Server started on http://localhost:${port}/`);
+                console.log(`Server started on http://0.0.0.0:${port}/`);
             } catch (err) {
                 app.log.error(err);
                 process.exit(1);

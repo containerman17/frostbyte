@@ -1,4 +1,4 @@
-import type { IndexerModule, BlockDB, RegisterRoutesContext, evmTypes } from "../index";
+import type { ApiPlugin, BlockDB, RegisterRoutesContext, evmTypes } from "../index";
 import { utils } from "@avalabs/avalanchejs";
 
 // JSON-RPC types
@@ -93,7 +93,7 @@ function handleRpcRequest(blocksDb: BlockDB, request: RPCRequest, dbCtx: Registe
     return response;
 }
 
-const registerRoutes: IndexerModule['registerRoutes'] = (app, dbCtx) => {
+const registerRoutes: ApiPlugin['registerRoutes'] = (app, dbCtx) => {
     // JSON Schemas
     const paramsSchema = {
         type: 'object',
@@ -309,13 +309,9 @@ const registerRoutes: IndexerModule['registerRoutes'] = (app, dbCtx) => {
     });
 };
 
-const module: IndexerModule = {
+const module: ApiPlugin = {
     name: 'rpc',
-    version: 0,
-    usesTraces: false,
-    wipe: () => { },
-    initialize: () => { },
-    handleTxBatch: () => { },
+    requiredIndexers: [], // This API doesn't need any indexer databases
     registerRoutes
 };
 
