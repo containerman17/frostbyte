@@ -1,7 +1,7 @@
 // Main exports for frostbyte plugin developers
 
 // The main interfaces plugins must implement
-export type { IndexingPlugin, ApiPlugin, RegisterRoutesContext } from './lib/types';
+export type { IndexingPlugin, ApiPlugin, RegisterRoutesContext, TxBatch } from './lib/types';
 
 // Types that are passed to plugin methods
 export * as evmTypes from './blockFetcher/evmTypes';
@@ -9,7 +9,7 @@ export * as evmTypes from './blockFetcher/evmTypes';
 export type { ChainConfig, RpcConfigWithBlockSize } from './config';
 
 // Re-export third-party types that plugins receive
-export type { Database } from 'better-sqlite3';
+export type { Database as Sqlite3Database } from 'better-sqlite3';
 export type { FastifyInstance } from 'fastify';
 
 export { prepQueryCached } from './lib/prep';

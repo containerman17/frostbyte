@@ -220,7 +220,6 @@ const registerRoutes: ApiPlugin['registerRoutes'] = (app, dbCtx) => {
     app.post('/:evmChainId/rpc', {
         schema: {
             description: 'JSON-RPC endpoint',
-            tags: ['RPC'],
             summary: 'Handles JSON-RPC requests',
             params: paramsSchema,
             body: {

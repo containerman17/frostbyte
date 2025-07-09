@@ -15,8 +15,10 @@
     "build": "tsc",
     "build:watch": "tsc --watch",
     "prepublishOnly": "npm run build",
-    "dev:start": "npx tsx cli.ts run --plugins-dir ./std --data-dir ./data",
-    "dev": "nodemon --watch plugins --watch data --exec \"npm run dev:start\""
+    "dev:start": "npx tsx cli.ts run --plugins-dir ./examples --data-dir ./data",
+    "dev": "nodemon --watch plugins --watch data --exec \"npm run dev:start\"",
+    "clean": "rm -rf data/*/indexing*",
+    "kill": "pkill -f 'tsx cli.ts run --plugins-dir ./examples --data-dir ./data'"
   },
   "keywords": [
     "blockchain",

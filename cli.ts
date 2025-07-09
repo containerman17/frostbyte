@@ -10,11 +10,13 @@ import { createPluginTemplate } from './lib/pluginTemplate.js';
 const argv = yargs(hideBin(process.argv))
     .command('run', 'Run the indexer', {
         'plugins-dir': {
+            alias: 'p',
             describe: 'Directory containing plugin files',
             type: 'string',
             demandOption: true,
         },
         'data-dir': {
+            alias: 'd',
             describe: 'Directory for storing data',
             type: 'string',
             default: './data',
@@ -22,17 +24,20 @@ const argv = yargs(hideBin(process.argv))
     })
     .command('init', 'Initialize a new plugin', {
         name: {
+            alias: 'n',
             describe: 'Name of the plugin',
             type: 'string',
             demandOption: true,
         },
         type: {
+            alias: 't',
             describe: 'Type of plugin to create',
             type: 'string',
             choices: ['indexing', 'api'],
-            default: 'indexing',
+            demandOption: true,
         },
         'plugins-dir': {
+            alias: 'p',
             describe: 'Directory to create the plugin in',
             type: 'string',
             default: './plugins',
@@ -40,6 +45,8 @@ const argv = yargs(hideBin(process.argv))
     })
     .demandCommand(1, 'You need at least one command')
     .help()
+    .alias('help', 'h')
+    .alias('version', 'v')
     .argv as any;
 
 async function main() {

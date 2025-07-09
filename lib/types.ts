@@ -14,6 +14,11 @@ export interface RegisterRoutesContext {
     getAllChainConfigs: () => ChainConfig[];
 }
 
+export type TxBatch = {
+    txs: StoredTx[];
+    traces: RpcTraceResult[] | undefined;
+}
+
 /** Indexing plugin - processes blockchain data and stores in its own database */
 export interface IndexingPlugin {
     name: string;          // unique slug, no whitespaces only a-z0-9-_
@@ -29,7 +34,7 @@ export interface IndexingPlugin {
     handleTxBatch: (
         db: SQLite.Database,
         blocksDb: BlockDB,
-        batch: { txs: StoredTx[]; traces: RpcTraceResult[] | undefined },
+        batch: TxBatch,
     ) => void | Promise<void>;
 }
 

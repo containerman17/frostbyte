@@ -198,7 +198,7 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
                 await app.listen({ port, host: '0.0.0.0' });
                 console.log(`Server started on http://0.0.0.0:${port}/`);
             } catch (err) {
-                app.log.error(err);
+                console.error('Failed to start API server:', err);
                 process.exit(1);
             }
         },
