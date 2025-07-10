@@ -162,6 +162,194 @@ export class BlockDB {
         if (end - start > 10) { // Only log if it took more than 10ms
             console.log(`BlockDB: Periodic maintenance completed in ${Math.round(end - start)}ms`);
         }
+
+        // Check if dictionary training or recompression is needed
+        this.performDictionaryMaintenance();
+    }
+
+    /**
+     * Dictionary maintenance - training and recompression
+     */
+    private performDictionaryMaintenance(): void {
+        if (this.isReadonly) return;
+
+        // Check if we need to train a dictionary
+        if (this.shouldTrainDictionary()) {
+            this.selectAndStoreDictionaryTrainingSamples();
+        }
+
+        // Check if we need to recompress blocks
+        if (this.blockDict && !this.isRecompressionComplete()) {
+            this.recompressBlocksWithDictionary();
+        }
+    }
+
+    private shouldTrainDictionary(): boolean {
+        // Check conditions for dictionary training
+        const blockCount = this.getLastStoredBlockNumber();
+        const hasDictionary = this.getDictionary('blocks') !== undefined;
+        const isTrainingInProgress = this.getDictionaryTrainingStatus() === 1;
+        
+        return blockCount > 10000 && !hasDictionary && !isTrainingInProgress;
+    }
+
+    private getDictionaryTrainingStatus(): number {
+        const select = this.prepQuery('SELECT value FROM kv_int WHERE key = ?');
+        const result = select.get('dict_training_in_progress') as { value: number } | undefined;
+        return result?.value ?? 0;
+    }
+
+    private setDictionaryTrainingStatus(inProgress: boolean): void {
+        const upsert = this.prepQuery('INSERT OR REPLACE INTO kv_int (key, value, codec) VALUES (?, ?, ?)');
+        upsert.run('dict_training_in_progress', inProgress ? 1 : 0, 0);
+    }
+
+    private selectAndStoreDictionaryTrainingSamples(): void {
+        console.log('BlockDB: Selecting blocks for dictionary training...');
+        this.setDictionaryTrainingStatus(true);
+
+        try {
+            const totalBlocks = this.getLastStoredBlockNumber();
+            const targetSamples = 10000;
+            const interval = Math.max(1, Math.floor(totalBlocks / targetSamples));
+            
+            // Store sample block numbers for external training
+            const samples: number[] = [];
+            for (let i = 0; i <= totalBlocks && samples.length < targetSamples; i += interval) {
+                samples.push(i);
+            }
+
+            // Store the sample list for external dictionary training
+            this.storeDictionaryTrainingSamples(samples);
+            
+            console.log(`BlockDB: Selected ${samples.length} blocks for dictionary training (every ${interval}th block)`);
+            
+            // Note: Actual dictionary training would happen externally
+            // For now, we just mark that samples are ready
+            this.setDictionaryTrainingSamplesReady(true);
+            
+        } finally {
+            this.setDictionaryTrainingStatus(false);
+        }
+    }
+
+    private storeDictionaryTrainingSamples(samples: number[]): void {
+        const upsert = this.prepQuery('INSERT OR REPLACE INTO kv_string (key, value, codec) VALUES (?, ?, ?)');
+        upsert.run('dict_training_samples', JSON.stringify(samples), 0);
+    }
+
+    private getDictionaryTrainingSamples(): number[] | null {
+        const select = this.prepQuery('SELECT value FROM kv_string WHERE key = ?');
+        const result = select.get('dict_training_samples') as { value: string } | undefined;
+        return result ? JSON.parse(result.value) : null;
+    }
+
+    private setDictionaryTrainingSamplesReady(ready: boolean): void {
+        const upsert = this.prepQuery('INSERT OR REPLACE INTO kv_int (key, value, codec) VALUES (?, ?, ?)');
+        upsert.run('dict_training_samples_ready', ready ? 1 : 0, 0);
+    }
+
+    exportDictionaryTrainingSamples(outputPath: string): void {
+        const samples = this.getDictionaryTrainingSamples();
+        if (!samples) {
+            throw new Error('No dictionary training samples available');
+        }
+
+        const fs = require('fs');
+        const path = require('path');
+        
+        // Create output directory
+        fs.mkdirSync(outputPath, { recursive: true });
+
+        // Export each sample block
+        for (const blockNum of samples) {
+            const block = this.slow_getBlockWithTransactions(blockNum);
+            if (block) {
+                const blockData = JSON.stringify(block);
+                fs.writeFileSync(path.join(outputPath, `block_${blockNum}.json`), blockData);
+            }
+        }
+
+        console.log(`Exported ${samples.length} blocks to ${outputPath} for dictionary training`);
+        console.log(`To train dictionary, run: zstd --train -r ${outputPath} -o dictionary`);
+    }
+
+    private getLastRecompressedBlock(): number {
+        const select = this.prepQuery('SELECT value FROM kv_int WHERE key = ?');
+        const result = select.get('last_recompressed_block') as { value: number } | undefined;
+        return result?.value ?? -1;
+    }
+
+    private setLastRecompressedBlock(blockNumber: number): void {
+        const upsert = this.prepQuery('INSERT OR REPLACE INTO kv_int (key, value, codec) VALUES (?, ?, ?)');
+        upsert.run('last_recompressed_block', blockNumber, 0);
+    }
+
+    private isRecompressionComplete(): boolean {
+        const select = this.prepQuery('SELECT value FROM kv_int WHERE key = ?');
+        const result = select.get('recompression_complete') as { value: number } | undefined;
+        return result?.value === 1;
+    }
+
+    private setRecompressionComplete(complete: boolean): void {
+        const upsert = this.prepQuery('INSERT OR REPLACE INTO kv_int (key, value, codec) VALUES (?, ?, ?)');
+        upsert.run('recompression_complete', complete ? 1 : 0, 0);
+    }
+
+    private recompressBlocksWithDictionary(): void {
+        const start = performance.now();
+        const lastRecompressed = this.getLastRecompressedBlock();
+        const batchSize = 1000;
+        
+        // Select blocks with codec=0 starting after the last recompressed block
+        const selectBlocks = this.prepQuery(`
+            SELECT number, hash, data 
+            FROM blocks 
+            WHERE number > ? AND codec = 0 
+            ORDER BY number ASC 
+            LIMIT ?
+        `);
+        
+        type BlockRow = {
+            number: number;
+            hash: Buffer;
+            data: Buffer;
+        };
+
+        const blocks = selectBlocks.all(lastRecompressed, batchSize) as BlockRow[];
+
+        if (blocks.length === 0) {
+            // No more blocks to recompress
+            this.setRecompressionComplete(true);
+            console.log('BlockDB: Dictionary recompression complete');
+            return;
+        }
+
+        const updateBlock = this.prepQuery('UPDATE blocks SET data = ?, codec = ? WHERE number = ?');
+        
+        const recompressMany = this.db.transaction((blocks: BlockRow[]) => {
+            for (const block of blocks) {
+                // Decompress with old method
+                const decompressed = zstdDecompress(block.data);
+                
+                // Recompress with dictionary
+                const recompressed = this.blockCompressor.compress(decompressed);
+                
+                // Update the block
+                updateBlock.run(recompressed, 1, block.number);
+            }
+            
+            // Update last recompressed block
+            const lastBlock = blocks[blocks.length - 1];
+            if (lastBlock) {
+                this.setLastRecompressedBlock(lastBlock.number);
+            }
+        });
+
+        recompressMany(blocks);
+
+        const end = performance.now();
+        console.log(`BlockDB: Recompressed ${blocks.length} blocks with dictionary in ${Math.round(end - start)}ms`);
     }
 
     getLastStoredBlockNumber(): number {
