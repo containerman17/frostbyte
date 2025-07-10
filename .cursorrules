@@ -18,3 +18,5 @@ handleTxBatch are already wrapped in a tx, no need for tramsactions inside handl
 Any chain-specific requests should start with /{evmChainId}/
 
 Don't forget to bump indexer version if you did any changes to indexing logic or db structure
+
+**Language**: Only TypeScript with ES6 imports allowed. No JavaScript files, no require() statements.

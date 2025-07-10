@@ -2,6 +2,9 @@ import Database from 'better-sqlite3';
 import { RpcBlock, RpcBlockTransaction, RpcTxReceipt, RpcTraceResult, StoredTx } from './evmTypes.js';
 import { compress as zstdCompress, decompress as zstdDecompress, Compressor as ZstdCompressor, Decompressor as ZstdDecompressor } from 'zstd-napi';
 import { StoredBlock } from './BatchRpc.js';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { rm, mkdir, writeFile } from 'fs/promises';
 
 export class BlockDB {
     private db: InstanceType<typeof Database>;
@@ -10,13 +13,12 @@ export class BlockDB {
     private hasDebug: boolean;
     private blockDict: Buffer | null = null;
     private txDict: Buffer | null = null;
-    private traceDict: Buffer | null = null;
     private blockCompressor: ZstdCompressor;
     private blockDecompressor: ZstdDecompressor;
     private txCompressor: ZstdCompressor;
     private txDecompressor: ZstdDecompressor;
-    private traceCompressor: ZstdCompressor;
-    private traceDecompressor: ZstdDecompressor;
+    private blocksDictTrainingLock: boolean = false;
+    private txsDictTrainingLock: boolean = false;
 
     constructor({ path, isReadonly, hasDebug }: { path: string, isReadonly: boolean, hasDebug: boolean }) {
         this.db = new Database(path, {
@@ -33,8 +35,6 @@ export class BlockDB {
         this.blockDecompressor = new ZstdDecompressor();
         this.txCompressor = new ZstdCompressor();
         this.txDecompressor = new ZstdDecompressor();
-        this.traceCompressor = new ZstdCompressor();
-        this.traceDecompressor = new ZstdDecompressor();
 
         // Load any stored dictionaries
         try {
@@ -43,7 +43,6 @@ export class BlockDB {
             for (const row of rows) {
                 if (row.name === 'blocks') this.blockDict = row.dict;
                 else if (row.name === 'txs') this.txDict = row.dict;
-                else if (row.name === 'traces') this.traceDict = row.dict;
             }
         } catch {
             // Table may not exist on older databases
@@ -55,10 +54,6 @@ export class BlockDB {
         if (this.txDict) {
             this.txCompressor.loadDictionary(this.txDict);
             this.txDecompressor.loadDictionary(this.txDict);
-        }
-        if (this.traceDict) {
-            this.traceCompressor.loadDictionary(this.traceDict);
-            this.traceDecompressor.loadDictionary(this.traceDict);
         }
 
         // Check and validate hasDebug setting
@@ -162,6 +157,476 @@ export class BlockDB {
         if (end - start > 10) { // Only log if it took more than 10ms
             console.log(`BlockDB: Periodic maintenance completed in ${Math.round(end - start)}ms`);
         }
+
+        // Check if dictionary training or recompression is needed
+        this.performDictionaryMaintenance();
+    }
+
+    /**
+     * Dictionary maintenance - training and recompression
+     */
+    private performDictionaryMaintenance(): void {
+        if (this.isReadonly) return;
+
+        // Check if we need to train a dictionary
+        if (this.shouldTrainDictionary()) {
+            // Fire and forget - don't block maintenance
+            this.selectAndStoreDictionaryTrainingSamples().catch(error => {
+                console.error('BlockDB: Dictionary training failed:', error);
+                process.exit(1);
+            });
+        }
+
+        // Check if we need to train tx dictionary
+        if (this.shouldTrainTxDictionary()) {
+            this.selectAndStoreTxDictionaryTrainingSamples().catch(error => {
+                console.error('BlockDB: Transaction dictionary training failed:', error);
+                process.exit(1);
+            });
+        }
+
+        // Check if we need to recompress blocks
+        if (this.blockDict && !this.isRecompressionComplete()) {
+            this.recompressBlocksWithDictionary();
+        }
+
+        // Check if we need to recompress transactions
+        if (this.txDict && !this.isTxRecompressionComplete()) {
+            this.recompressTxsWithDictionary();
+        }
+    }
+
+    private shouldTrainDictionary(): boolean {
+        return false; //TODO: debug and bring back
+        // Check conditions for dictionary training
+        const blockCount = this.getLastStoredBlockNumber();
+        const hasDictionary = this.getDictionary('blocks') !== undefined;
+
+        // Don't train if we already have a dictionary or training is in progress
+        if (this.blocksDictTrainingLock || hasDictionary) {
+            return false;
+        }
+
+        return blockCount > 10000;
+    }
+
+    private shouldTrainTxDictionary(): boolean {
+        return false; //TODO: debug and bring back
+        const txCount = this.getTxCount();
+        const hasDictionary = this.getDictionary('txs') !== undefined;
+
+        // Don't train if we already have a dictionary or training is in progress
+        if (this.txsDictTrainingLock || hasDictionary) {
+            return false;
+        }
+
+        return txCount > 10000;
+    }
+
+    private async selectAndStoreDictionaryTrainingSamples(): Promise<void> {
+        console.log('BlockDB: Starting automatic dictionary training...');
+        this.blocksDictTrainingLock = true;
+
+        const { execSync } = await import('child_process');
+        const { readFileSync, unlinkSync } = await import('fs');
+
+        // Check if zstd is installed
+        try {
+            execSync('zstd --version', { stdio: 'ignore' });
+        } catch {
+            throw new Error('zstd is not installed. Install with: apt-get install zstd (Ubuntu) or brew install zstd (macOS)');
+        }
+
+        // Create a unique temp directory for this training session
+        const tempDir = join(tmpdir(), `frostbyte-dict-blocks-${Date.now()}`);
+        const dictPath = join(tmpdir(), `blocks-dict-${Date.now()}.zstd`);
+
+        try {
+            const totalBlocks = this.getLastStoredBlockNumber();
+            console.log(`BlockDB: Training dictionary with ${totalBlocks} blocks...`);
+
+            // Step 1: Export samples
+            console.log(`BlockDB: Exporting samples to ${tempDir}...`);
+            await this.exportDictionaryTrainingSamples(tempDir);
+
+            // Step 2: Train dictionary using zstd
+            console.log('BlockDB: Training dictionary...');
+            const cmd = `zstd --train -r "${tempDir}" -o "${dictPath}" --maxdict=262144`;
+            execSync(cmd, { stdio: 'inherit' });
+
+            // Step 3: Load dictionary into database
+            console.log('BlockDB: Loading dictionary...');
+            const dictionary = readFileSync(dictPath);
+            this.setDictionary('blocks', dictionary);
+
+            // Clean up
+            await rm(tempDir, { recursive: true, force: true });
+            unlinkSync(dictPath);
+
+            console.log('BlockDB: Dictionary training completed successfully!');
+        } catch (error) {
+            // Clean up on error
+            await rm(tempDir, { recursive: true, force: true }).catch(() => { });
+            if (dictPath) {
+                try { unlinkSync(dictPath); } catch { }
+            }
+
+            console.error('BlockDB: Dictionary training failed:', error);
+            throw error;
+        } finally {
+            this.blocksDictTrainingLock = false;
+        }
+    }
+
+    async exportDictionaryTrainingSamples(outputPath: string): Promise<void> {
+        const totalBlocks = this.getLastStoredBlockNumber();
+        if (totalBlocks < 10000) {
+            throw new Error(`Not enough blocks for dictionary training. Have ${totalBlocks}, need at least 10,000`);
+        }
+
+        // Clean directory and recreate
+        await rm(outputPath, { recursive: true, force: true });
+        await mkdir(outputPath, { recursive: true });
+
+        // Calculate sample blocks
+        const targetSamples = 10000;
+        const interval = Math.max(1, Math.floor(totalBlocks / targetSamples));
+        const samples: number[] = [];
+        for (let i = 0; i <= totalBlocks && samples.length < targetSamples; i += interval) {
+            samples.push(i);
+        }
+
+        // Select raw compressed blocks from database
+        const selectBlock = this.prepQuery('SELECT data, codec FROM blocks WHERE number = ?');
+        let exportedCount = 0;
+
+        console.log(`BlockDB: Exporting ${samples.length} samples (every ${interval}th block) to ${outputPath}...`);
+
+        for (const blockNum of samples) {
+            const row = selectBlock.get(blockNum) as { data: Buffer; codec: number } | undefined;
+            if (row) {
+                // Decompress the raw block data (but don't parse as JSON)
+                let decompressedData: Buffer;
+                if (row.codec === 0) {
+                    decompressedData = zstdDecompress(row.data);
+                } else if (row.codec === 1 && this.blockDict) {
+                    decompressedData = this.blockDecompressor.decompress(row.data);
+                } else {
+                    throw new Error(`Unsupported codec ${row.codec} for block ${blockNum}`);
+                }
+
+                // Save raw decompressed data for dictionary training
+                await writeFile(join(outputPath, `block_${blockNum}.raw`), decompressedData);
+                exportedCount++;
+            }
+        }
+
+        console.log(`BlockDB: Exported ${exportedCount} raw block samples to ${outputPath}`);
+        console.log(`BlockDB: Next step - train dictionary: zstd --train -r "${outputPath}" -o blocks.dict --maxdict=262144`);
+    }
+
+    private async selectAndStoreTxDictionaryTrainingSamples(): Promise<void> {
+        console.log('BlockDB: Starting automatic transaction dictionary training...');
+        this.txsDictTrainingLock = true;
+
+        const { execSync } = await import('child_process');
+        const { readFileSync, unlinkSync } = await import('fs');
+
+        // Check if zstd is installed
+        try {
+            execSync('zstd --version', { stdio: 'ignore' });
+        } catch {
+            throw new Error('zstd is not installed. Install with: apt-get install zstd (Ubuntu) or brew install zstd (macOS)');
+        }
+
+        // Create a unique temp directory for this training session
+        const tempDir = join(tmpdir(), `frostbyte-dict-txs-${Date.now()}`);
+        const dictPath = join(tmpdir(), `txs-dict-${Date.now()}.zstd`);
+
+        try {
+            const totalTxs = this.getTxCount();
+            console.log(`BlockDB: Training transaction dictionary with ${totalTxs} transactions...`);
+
+            // Step 1: Export samples
+            console.log(`BlockDB: Exporting transaction samples to ${tempDir}...`);
+            await this.exportTxDictionaryTrainingSamples(tempDir);
+
+            // Step 2: Train dictionary using zstd
+            console.log('BlockDB: Training transaction dictionary...');
+            const cmd = `zstd --train -r "${tempDir}" -o "${dictPath}" --maxdict=262144`;
+            execSync(cmd, { stdio: 'inherit' });
+
+            // Step 3: Load dictionary into database
+            console.log('BlockDB: Loading transaction dictionary...');
+            const dictionary = readFileSync(dictPath);
+            this.setDictionary('txs', dictionary);
+
+            // Clean up
+            await rm(tempDir, { recursive: true, force: true });
+            unlinkSync(dictPath);
+
+            console.log('BlockDB: Transaction dictionary training completed successfully!');
+        } catch (error) {
+            // Clean up on error
+            await rm(tempDir, { recursive: true, force: true }).catch(() => { });
+            if (dictPath) {
+                try { unlinkSync(dictPath); } catch { }
+            }
+
+            console.error('BlockDB: Transaction dictionary training failed:', error);
+            throw error;
+        } finally {
+            this.txsDictTrainingLock = false;
+        }
+    }
+
+    async exportTxDictionaryTrainingSamples(outputPath: string): Promise<void> {
+        const totalTxs = this.getTxCount();
+        if (totalTxs < 10000) {
+            throw new Error(`Not enough transactions for dictionary training. Have ${totalTxs}, need at least 10,000`);
+        }
+
+        // Clean directory and recreate
+        await rm(outputPath, { recursive: true, force: true });
+        await mkdir(outputPath, { recursive: true });
+
+        // Calculate sample transactions - we want 5000 tx samples (which will give us up to 10000 files with traces)
+        const targetSamples = 5000;
+        const interval = Math.max(1, Math.floor(totalTxs / targetSamples));
+
+        // Get the max tx_num to know the range
+        const getMaxTxNum = this.prepQuery('SELECT MAX(tx_num) as max_tx_num FROM txs');
+        const maxTxNumRow = getMaxTxNum.get() as { max_tx_num: number } | undefined;
+        if (!maxTxNumRow || maxTxNumRow.max_tx_num === null) {
+            throw new Error('No transactions found in database');
+        }
+        const maxTxNum = maxTxNumRow.max_tx_num;
+
+        // Select raw compressed transaction data from database
+        const selectTx = this.prepQuery('SELECT data, traces, codec FROM txs WHERE tx_num = ?');
+        let exportedCount = 0;
+
+        console.log(`BlockDB: Exporting transaction samples (every ${interval}th transaction) to ${outputPath}...`);
+
+        // Sample evenly across the tx_num range
+        for (let i = 0; i <= maxTxNum && exportedCount < targetSamples; i += interval) {
+            const row = selectTx.get(i) as { data: Buffer; traces: Buffer | null; codec: number } | undefined;
+            if (row) {
+                // Decompress the transaction data (but don't parse as JSON)
+                let decompressedTxData: Buffer;
+                if (row.codec === 0) {
+                    decompressedTxData = zstdDecompress(row.data);
+                } else if (row.codec === 1 && this.txDict) {
+                    decompressedTxData = this.txDecompressor.decompress(row.data);
+                } else {
+                    throw new Error(`Unsupported codec ${row.codec} for tx_num ${i}`);
+                }
+
+                // Save raw decompressed tx data for dictionary training
+                await writeFile(join(outputPath, `tx_${i}.raw`), decompressedTxData);
+
+                // Also save trace data if available
+                if (this.hasDebug && row.traces) {
+                    let decompressedTraceData: Buffer;
+                    if (row.codec === 0) {
+                        decompressedTraceData = zstdDecompress(row.traces);
+                    } else if (row.codec === 1 && this.txDict) {
+                        decompressedTraceData = this.txDecompressor.decompress(row.traces);
+                    } else {
+                        throw new Error(`Unsupported codec ${row.codec} for trace at tx_num ${i}`);
+                    }
+                    await writeFile(join(outputPath, `trace_${i}.raw`), decompressedTraceData);
+                }
+
+                exportedCount++;
+            }
+        }
+
+        console.log(`BlockDB: Exported ${exportedCount} transaction samples (and their traces if available) to ${outputPath}`);
+    }
+
+    private getLastRecompressedBlock(): number {
+        const select = this.prepQuery('SELECT value FROM kv_int WHERE key = ?');
+        const result = select.get('last_recompressed_block') as { value: number } | undefined;
+        return result?.value ?? -1;
+    }
+
+    private setLastRecompressedBlock(blockNumber: number): void {
+        const upsert = this.prepQuery('INSERT OR REPLACE INTO kv_int (key, value, codec) VALUES (?, ?, ?)');
+        upsert.run('last_recompressed_block', blockNumber, 0);
+    }
+
+    private isRecompressionComplete(): boolean {
+        const select = this.prepQuery('SELECT value FROM kv_int WHERE key = ?');
+        const result = select.get('recompression_complete') as { value: number } | undefined;
+        return result?.value === 1;
+    }
+
+    private setRecompressionComplete(complete: boolean): void {
+        const upsert = this.prepQuery('INSERT OR REPLACE INTO kv_int (key, value, codec) VALUES (?, ?, ?)');
+        upsert.run('recompression_complete', complete ? 1 : 0, 0);
+    }
+
+    private getLastRecompressedTx(): number {
+        const select = this.prepQuery('SELECT value FROM kv_int WHERE key = ?');
+        const result = select.get('last_recompressed_tx') as { value: number } | undefined;
+        return result?.value ?? -1;
+    }
+
+    private setLastRecompressedTx(txNum: number): void {
+        const upsert = this.prepQuery('INSERT OR REPLACE INTO kv_int (key, value, codec) VALUES (?, ?, ?)');
+        upsert.run('last_recompressed_tx', txNum, 0);
+    }
+
+    private isTxRecompressionComplete(): boolean {
+        const select = this.prepQuery('SELECT value FROM kv_int WHERE key = ?');
+        const result = select.get('tx_recompression_complete') as { value: number } | undefined;
+        return result?.value === 1;
+    }
+
+    private setTxRecompressionComplete(complete: boolean): void {
+        const upsert = this.prepQuery('INSERT OR REPLACE INTO kv_int (key, value, codec) VALUES (?, ?, ?)');
+        upsert.run('tx_recompression_complete', complete ? 1 : 0, 0);
+    }
+
+    private recompressBlocksWithDictionary(): void {
+        const start = performance.now();
+        const lastRecompressed = this.getLastRecompressedBlock();
+        const batchSize = 10000;
+
+        // Count total blocks that need recompression
+        const countQuery = this.prepQuery('SELECT COUNT(*) as count FROM blocks WHERE codec = 0');
+        const totalToRecompress = (countQuery.get() as { count: number }).count;
+
+        // Count how many we've already done
+        const doneQuery = this.prepQuery('SELECT COUNT(*) as count FROM blocks WHERE codec = 1');
+        const alreadyRecompressed = (doneQuery.get() as { count: number }).count;
+
+        // Select blocks with codec=0 starting after the last recompressed block
+        const selectBlocks = this.prepQuery(`
+            SELECT number, hash, data 
+            FROM blocks 
+            WHERE number > ? AND codec = 0 
+            ORDER BY number ASC 
+            LIMIT ?
+        `);
+
+        type BlockRow = {
+            number: number;
+            hash: Buffer;
+            data: Buffer;
+        };
+
+        const blocks = selectBlocks.all(lastRecompressed, batchSize) as BlockRow[];
+
+        if (blocks.length === 0) {
+            // No more blocks to recompress
+            this.setRecompressionComplete(true);
+            console.log('BlockDB: Dictionary recompression complete');
+            return;
+        }
+
+        const updateBlock = this.prepQuery('UPDATE blocks SET data = ?, codec = ? WHERE number = ?');
+
+        const recompressMany = this.db.transaction((blocks: BlockRow[]) => {
+            for (const block of blocks) {
+                // Decompress with old method
+                const decompressed = zstdDecompress(block.data);
+
+                // Recompress with dictionary
+                const recompressed = this.blockCompressor.compress(decompressed);
+
+                // Update the block
+                updateBlock.run(recompressed, 1, block.number);
+            }
+
+            // Update last recompressed block
+            const lastBlock = blocks[blocks.length - 1];
+            if (lastBlock) {
+                this.setLastRecompressedBlock(lastBlock.number);
+            }
+        });
+
+        recompressMany(blocks);
+
+        const end = performance.now();
+        const totalProcessed = alreadyRecompressed + blocks.length;
+        const totalBlocks = totalToRecompress + alreadyRecompressed;
+        console.log(`BlockDB: Recompressed ${blocks.length} blocks with dictionary in ${Math.round(end - start)}ms (${totalProcessed}/${totalBlocks} total)`);
+    }
+
+    private recompressTxsWithDictionary(): void {
+        const start = performance.now();
+        const lastRecompressed = this.getLastRecompressedTx();
+        const batchSize = 10000;
+
+        // Count total transactions that need recompression
+        const countQuery = this.prepQuery('SELECT COUNT(*) as count FROM txs WHERE codec = 0');
+        const totalToRecompress = (countQuery.get() as { count: number }).count;
+
+        // Count how many we've already done
+        const doneQuery = this.prepQuery('SELECT COUNT(*) as count FROM txs WHERE codec = 1');
+        const alreadyRecompressed = (doneQuery.get() as { count: number }).count;
+
+        // Select transactions with codec=0 starting after the last recompressed tx
+        const selectTxs = this.prepQuery(`
+            SELECT tx_num, data, traces 
+            FROM txs 
+            WHERE tx_num > ? AND codec = 0 
+            ORDER BY tx_num ASC 
+            LIMIT ?
+        `);
+
+        type TxRow = {
+            tx_num: number;
+            data: Buffer;
+            traces: Buffer | null;
+        };
+
+        const txs = selectTxs.all(lastRecompressed, batchSize) as TxRow[];
+
+        if (txs.length === 0) {
+            // No more transactions to recompress
+            this.setTxRecompressionComplete(true);
+            console.log('BlockDB: Transaction dictionary recompression complete');
+            return;
+        }
+
+        const updateTx = this.prepQuery('UPDATE txs SET data = ?, codec = ? WHERE tx_num = ?');
+
+        const recompressMany = this.db.transaction((txs: TxRow[]) => {
+            for (const tx of txs) {
+                // Decompress with old method
+                const decompressed = zstdDecompress(tx.data);
+
+                // Recompress with dictionary
+                const recompressed = this.txCompressor.compress(decompressed);
+
+                // Update the transaction data
+                updateTx.run(recompressed, 1, tx.tx_num);
+
+                // If there are traces, recompress them too
+                if (tx.traces) {
+                    const updateTraces = this.prepQuery('UPDATE txs SET traces = ? WHERE tx_num = ?');
+                    const decompressedTrace = zstdDecompress(tx.traces);
+                    const recompressedTrace = this.txCompressor.compress(decompressedTrace);
+                    updateTraces.run(recompressedTrace, tx.tx_num);
+                }
+            }
+
+            // Update last recompressed tx
+            const lastTx = txs[txs.length - 1];
+            if (lastTx) {
+                this.setLastRecompressedTx(lastTx.tx_num);
+            }
+        });
+
+        recompressMany(txs);
+
+        const end = performance.now();
+        const totalProcessed = alreadyRecompressed + txs.length;
+        const totalTxs = totalToRecompress + alreadyRecompressed;
+        console.log(`BlockDB: Recompressed ${txs.length} transactions with dictionary in ${Math.round(end - start)}ms (${totalProcessed}/${totalTxs} total)`);
     }
 
     getLastStoredBlockNumber(): number {
@@ -292,6 +757,8 @@ export class BlockDB {
             const compressedTxData = this.txDict
                 ? this.txCompressor.compress(Buffer.from(txJsonStr))
                 : zstdCompress(Buffer.from(txJsonStr));
+
+            // Simple codec: 0 = no dict, 1 = dict
             const txCodec = this.txDict ? 1 : 0;
 
             // Extract transaction hash (remove '0x' prefix and convert to Buffer)
@@ -310,8 +777,9 @@ export class BlockDB {
                 }
                 const trace = traces[0]!;
                 const traceJsonStr = JSON.stringify(trace);
-                compressedTraceData = this.traceDict
-                    ? this.traceCompressor.compress(Buffer.from(traceJsonStr))
+                // Use the same txDict for trace compression
+                compressedTraceData = this.txDict
+                    ? this.txCompressor.compress(Buffer.from(traceJsonStr))
                     : zstdCompress(Buffer.from(traceJsonStr));
             }
 
@@ -427,14 +895,12 @@ export class BlockDB {
             this.blockDict = data;
             this.blockCompressor.loadDictionary(data);
             this.blockDecompressor.loadDictionary(data);
+            console.log('BlockDB: Blocks dictionary loaded successfully');
         } else if (name === 'txs') {
             this.txDict = data;
             this.txCompressor.loadDictionary(data);
             this.txDecompressor.loadDictionary(data);
-        } else if (name === 'traces') {
-            this.traceDict = data;
-            this.traceCompressor.loadDictionary(data);
-            this.traceDecompressor.loadDictionary(data);
+            console.log('BlockDB: Transactions dictionary loaded successfully');
         }
     }
 
@@ -468,12 +934,27 @@ export class BlockDB {
 
         for (const row of rows) {
             let decompressedTxData: Buffer;
+            let decompressedTraceData: Buffer | undefined;
+
+            // Simple codec: 0 = no dict, 1 = dict (for both data and traces)
             if (row.codec === 0) {
                 decompressedTxData = zstdDecompress(row.data);
-            } else if (row.codec === 1 && this.txDict) {
+                if (this.hasDebug && includeTraces && row.traces) {
+                    decompressedTraceData = zstdDecompress(row.traces);
+                }
+            } else if (row.codec === 1) {
+                if (!this.txDict) {
+                    throw new Error(`Codec 1 requires tx dictionary but none loaded for tx_num ${row.tx_num}`);
+                }
                 decompressedTxData = this.txDecompressor.decompress(row.data);
+                if (this.hasDebug && includeTraces && row.traces) {
+                    // Use the same txDict for trace decompression
+                    decompressedTraceData = this.txDecompressor.decompress(row.traces);
+                }
             } else {
-                throw new Error(`Unsupported codec ${row.codec} for tx_num ${row.tx_num}`);
+                // FATAL: codec should only be 0 or 1
+                console.error(`FATAL: Invalid codec ${row.codec} for tx_num ${row.tx_num}. Database is corrupted!`);
+                process.exit(1);
             }
 
             // Decompress and parse transaction data
@@ -481,18 +962,7 @@ export class BlockDB {
             txs.push(storedTx);
 
             // Handle traces if both debug is enabled AND traces are requested
-            if (this.hasDebug && includeTraces) {
-                if (!row.traces) {
-                    throw new Error(`hasDebug is true but no trace found for tx_num ${row.tx_num}`);
-                }
-                let decompressedTraceData: Buffer;
-                if (row.codec === 0) {
-                    decompressedTraceData = zstdDecompress(row.traces);
-                } else if (row.codec === 1 && this.traceDict) {
-                    decompressedTraceData = this.traceDecompressor.decompress(row.traces);
-                } else {
-                    throw new Error(`Unsupported codec ${row.codec} for tx_num ${row.tx_num}`);
-                }
+            if (this.hasDebug && includeTraces && decompressedTraceData) {
                 const trace = JSON.parse(decompressedTraceData.toString()) as RpcTraceResult;
                 traces.push(trace);
             }
@@ -551,7 +1021,9 @@ export class BlockDB {
         } else if (blockRow.codec === 1 && this.blockDict) {
             decompressedBlockData = this.blockDecompressor.decompress(blockRow.data);
         } else {
-            throw new Error(`Unsupported codec ${blockRow.codec} for block ${blockNumber}`);
+            // FATAL: codec should only be 0 or 1
+            console.error(`FATAL: Invalid codec ${blockRow.codec} for block ${blockNumber}. Database is corrupted!`);
+            process.exit(1);
         }
 
         // Decompress and parse the block data (without transactions)
@@ -583,12 +1055,19 @@ export class BlockDB {
 
         for (const txRow of txRows) {
             let decompressedTxData: Buffer;
+
+            // Simple codec: 0 = no dict, 1 = dict
             if (txRow.codec === 0) {
                 decompressedTxData = zstdDecompress(txRow.data);
-            } else if (txRow.codec === 1 && this.txDict) {
+            } else if (txRow.codec === 1) {
+                if (!this.txDict) {
+                    throw new Error(`Codec 1 requires tx dictionary but none loaded for tx_num ${txRow.tx_num}`);
+                }
                 decompressedTxData = this.txDecompressor.decompress(txRow.data);
             } else {
-                throw new Error(`Unsupported codec ${txRow.codec} for tx_num ${txRow.tx_num}`);
+                // FATAL: codec should only be 0 or 1
+                console.error(`FATAL: Invalid codec ${txRow.codec} for tx_num ${txRow.tx_num}. Database is corrupted!`);
+                process.exit(1);
             }
 
             // Decompress and parse transaction data
@@ -615,10 +1094,21 @@ export class BlockDB {
         const select = this.prepQuery('SELECT data, codec FROM txs WHERE hash = ?');
         const row = select.get(hashBuf) as { data: Buffer; codec: number } | undefined;
         if (!row) return null;
-        if (row.codec !== 0) {
-            throw new Error(`Unsupported codec ${row.codec} for tx ${txHash}`);
+
+        let decompressedTxData: Buffer;
+        if (row.codec === 0) {
+            decompressedTxData = zstdDecompress(row.data);
+        } else if (row.codec === 1) {
+            if (!this.txDict) {
+                throw new Error(`Codec 1 requires tx dictionary but none loaded for tx ${txHash}`);
+            }
+            decompressedTxData = this.txDecompressor.decompress(row.data);
+        } else {
+            // FATAL: codec should only be 0 or 1
+            console.error(`FATAL: Invalid codec ${row.codec} for tx ${txHash}. Database is corrupted!`);
+            process.exit(1);
         }
-        const decompressedTxData = zstdDecompress(row.data);
+
         const storedTx = JSON.parse(decompressedTxData.toString()) as StoredTx;
         return storedTx.receipt;
     }
@@ -627,12 +1117,27 @@ export class BlockDB {
      * Fetches call traces for a block if available.
      */
     slow_getBlockTraces(blockNumber: number): RpcTraceResult[] {
-        const select = this.prepQuery('SELECT traces FROM txs WHERE block_num = ? ORDER BY tx_idx ASC');
-        const rows = select.all(blockNumber) as Array<{ traces: Buffer | null }>;
+        const select = this.prepQuery('SELECT traces, codec FROM txs WHERE block_num = ? ORDER BY tx_idx ASC');
+        const rows = select.all(blockNumber) as Array<{ traces: Buffer | null; codec: number }>;
         const traces: RpcTraceResult[] = [];
         for (const row of rows) {
             if (!row.traces) continue;
-            const decompressed = zstdDecompress(row.traces);
+
+            let decompressed: Buffer;
+            if (row.codec === 0) {
+                decompressed = zstdDecompress(row.traces);
+            } else if (row.codec === 1) {
+                if (!this.txDict) {
+                    throw new Error(`Codec 1 requires tx dictionary but none loaded for block ${blockNumber}`);
+                }
+                // Use txDict for trace decompression
+                decompressed = this.txDecompressor.decompress(row.traces);
+            } else {
+                // FATAL: codec should only be 0 or 1
+                console.error(`FATAL: Invalid codec ${row.codec} for block ${blockNumber}. Database is corrupted!`);
+                process.exit(1);
+            }
+
             const trace = JSON.parse(decompressed.toString()) as RpcTraceResult;
             traces.push(trace);
         }
