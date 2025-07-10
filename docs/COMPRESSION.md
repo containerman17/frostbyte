@@ -22,10 +22,12 @@ The training process:
 3. Marks samples as ready for external dictionary training
 
 To actually train a dictionary:
-1. Export the training samples: `blockDB.exportDictionaryTrainingSamples('/path/to/samples')`
+1. Export the training samples: `await blockDB.exportDictionaryTrainingSamples('/path/to/samples')`
 2. Install zstd: `apt-get install zstd` or `brew install zstd`
 3. Train the dictionary: `zstd --train -r /path/to/samples -o dictionary --maxdict=262144`
 4. Load the dictionary into the database (see API section)
+
+Note: The exported samples are raw decompressed block data (not parsed JSON), which provides optimal dictionary training for the actual data patterns.
 
 ### Dictionary Compression
 
@@ -68,8 +70,8 @@ The database tracks compression state using:
 
 ### BlockDB Methods
 
-#### `exportDictionaryTrainingSamples(outputPath: string): void`
-Exports selected sample blocks for external dictionary training.
+#### `exportDictionaryTrainingSamples(outputPath: string): Promise<void>`
+Exports selected sample blocks for external dictionary training. The exported files contain raw decompressed block data (not parsed JSON) for optimal dictionary training.
 
 #### `getDictionary(name: string): Buffer | undefined`
 Retrieves a stored dictionary by name ('blocks', 'txs', or 'traces').
@@ -80,18 +82,22 @@ Stores a trained dictionary for use in compression.
 ### Example Usage
 
 ```typescript
-// After dictionary training samples are ready
-blockDB.exportDictionaryTrainingSamples('/tmp/block_samples');
+// After dictionary training samples are ready (happens automatically after 10k blocks)
+await blockDB.exportDictionaryTrainingSamples('/tmp/block_samples');
 
-// Train dictionary externally
+// Train dictionary externally (requires zstd CLI)
 // $ zstd --train -r /tmp/block_samples -o /tmp/blocks.dict --maxdict=262144
 
-// Load the trained dictionary
-const fs = require('fs');
-const dictionary = fs.readFileSync('/tmp/blocks.dict');
+// Or use the helper script for the complete workflow:
+// $ ts-node blockFetcher/dictionary-helper.ts full ./blocks.db ./dict-workspace
+
+// Load trained dictionary
+import { readFileSync } from 'fs';
+const dictionary = readFileSync('/tmp/blocks.dict');
 blockDB.setDictionary('blocks', dictionary);
 
-// New blocks will now use dictionary compression automatically
+// New blocks now use dictionary compression automatically
+// Old blocks are recompressed gradually during maintenance
 ```
 
 ## Maintenance

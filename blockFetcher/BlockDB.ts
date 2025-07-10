@@ -249,29 +249,43 @@ export class BlockDB {
         upsert.run('dict_training_samples_ready', ready ? 1 : 0, 0);
     }
 
-    exportDictionaryTrainingSamples(outputPath: string): void {
+    async exportDictionaryTrainingSamples(outputPath: string): Promise<void> {
         const samples = this.getDictionaryTrainingSamples();
         if (!samples) {
             throw new Error('No dictionary training samples available');
         }
 
-        const fs = require('fs');
-        const path = require('path');
+        const { mkdir, writeFile } = await import('fs/promises');
+        const { join } = await import('path');
         
         // Create output directory
-        fs.mkdirSync(outputPath, { recursive: true });
+        await mkdir(outputPath, { recursive: true });
 
-        // Export each sample block
+        // Select raw compressed blocks from database
+        const selectBlock = this.prepQuery('SELECT data, codec FROM blocks WHERE number = ?');
+        let exportedCount = 0;
+
         for (const blockNum of samples) {
-            const block = this.slow_getBlockWithTransactions(blockNum);
-            if (block) {
-                const blockData = JSON.stringify(block);
-                fs.writeFileSync(path.join(outputPath, `block_${blockNum}.json`), blockData);
+            const row = selectBlock.get(blockNum) as { data: Buffer; codec: number } | undefined;
+            if (row) {
+                // Decompress the raw block data (but don't parse as JSON)
+                let decompressedData: Buffer;
+                if (row.codec === 0) {
+                    decompressedData = zstdDecompress(row.data);
+                } else if (row.codec === 1 && this.blockDict) {
+                    decompressedData = this.blockDecompressor.decompress(row.data);
+                } else {
+                    continue; // Skip if unsupported codec
+                }
+                
+                // Save raw decompressed data for dictionary training
+                await writeFile(join(outputPath, `block_${blockNum}.raw`), decompressedData);
+                exportedCount++;
             }
         }
 
-        console.log(`Exported ${samples.length} blocks to ${outputPath} for dictionary training`);
-        console.log(`To train dictionary, run: zstd --train -r ${outputPath} -o dictionary`);
+        console.log(`Exported ${exportedCount} raw block samples to ${outputPath} for dictionary training`);
+        console.log(`To train dictionary, run: zstd --train -r ${outputPath} -o dictionary --maxdict=262144`);
     }
 
     private getLastRecompressedBlock(): number {
