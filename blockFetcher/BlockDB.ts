@@ -199,28 +199,28 @@ export class BlockDB {
     private shouldTrainDictionary(): boolean {
         return false; //TODO: debug and bring back
         // Check conditions for dictionary training
-        const blockCount = this.getLastStoredBlockNumber();
-        const hasDictionary = this.getDictionary('blocks') !== undefined;
+        // const blockCount = this.getLastStoredBlockNumber();
+        // const hasDictionary = this.getDictionary('blocks') !== undefined;
 
-        // Don't train if we already have a dictionary or training is in progress
-        if (this.blocksDictTrainingLock || hasDictionary) {
-            return false;
-        }
+        // // Don't train if we already have a dictionary or training is in progress
+        // if (this.blocksDictTrainingLock || hasDictionary) {
+        //     return false;
+        // }
 
-        return blockCount > 10000;
+        // return blockCount > 10000;
     }
 
     private shouldTrainTxDictionary(): boolean {
         return false; //TODO: debug and bring back
-        const txCount = this.getTxCount();
-        const hasDictionary = this.getDictionary('txs') !== undefined;
+        // const txCount = this.getTxCount();
+        // const hasDictionary = this.getDictionary('txs') !== undefined;
 
-        // Don't train if we already have a dictionary or training is in progress
-        if (this.txsDictTrainingLock || hasDictionary) {
-            return false;
-        }
+        // // Don't train if we already have a dictionary or training is in progress
+        // if (this.txsDictTrainingLock || hasDictionary) {
+        //     return false;
+        // }
 
-        return txCount > 10000;
+        // return txCount > 10000;
     }
 
     private async selectAndStoreDictionaryTrainingSamples(): Promise<void> {
