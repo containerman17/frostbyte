@@ -2,8 +2,8 @@
 network/RPC calls—never catch and continue. If anything fails, crash immediately
 to ensure data integrity and clear visibility of problems. Always print errors.
 
-**New product**: Do not write compatibility layers with old versions; for now,
-treat every deployment as a completely fresh deployment.
+For indexers, do not run any compatibility upgrades - we will just drop db and reindex in a few minutes. For blocks db, 
+ask me before doing any non-reverse compatible changes requiring manual upgrade. 
 
 **I will run it myself**: Do not test, do not run anything, just write. I will test manually.
 
