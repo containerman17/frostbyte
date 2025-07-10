@@ -4,7 +4,7 @@ export class DynamicBatchSizeManager {
     private minBatchSize: number;
     private currentBatchSize: number;
     private readonly decreaseRate = 0.35; // 35%
-    private readonly increaseRate = 0.001; // 0.1%
+    private readonly increaseRate = 0.005; // 0.5%
 
     private hasErrorsThisSecond = false;
     private hasSuccessThisSecond = false;

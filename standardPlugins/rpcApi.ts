@@ -42,7 +42,12 @@ function getBlockTraces(blocksDb: BlockDB, blockNumber: number) {
 function handleRpcRequest(blocksDb: BlockDB, request: RPCRequest, dbCtx: RegisterRoutesContext): RPCResponse {
     const response: RPCResponse = { jsonrpc: request.jsonrpc || '2.0' };
     if (request.id !== undefined) {
-        response.id = request.id;
+        // Parse numeric strings to actual numbers
+        if (typeof request.id === 'string' && /^\d+$/.test(request.id)) {
+            response.id = parseInt(request.id, 10);
+        } else {
+            response.id = request.id;
+        }
     }
 
     try {
