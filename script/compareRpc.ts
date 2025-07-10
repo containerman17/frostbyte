@@ -3,8 +3,6 @@
  * 
  * Usage:
  *   npm run build && node dist/script/compareRpc.js
- *   npm run build && node dist/script/compareRpc.js --debug  # Also test debug_traceBlockByNumber
- *   npm run build && node dist/script/compareRpc.js --extended  # Run extended tests
  * 
  * Tests:
  * - eth_chainId
@@ -12,9 +10,9 @@
  * - eth_blockNumber
  * - eth_getBlockByNumber (for blocks 0-9)
  * - eth_getTransactionReceipt (for all txs in blocks 0-9)
- * - debug_traceBlockByNumber (if --debug flag is passed)
- * - Error handling (if --extended flag is passed)
- * - Batch operations (if --extended flag is passed)
+ * - debug_traceBlockByNumber (if chain config supports debug)
+ * - Error handling (extended tests always run)
+ * - Batch operations (extended tests always run)
  */
 import { diffString, diff } from 'json-diff';
 import { BatchRpc } from '../blockFetcher/BatchRpc.js';
@@ -30,9 +28,9 @@ const chainsData = JSON.parse(fs.readFileSync(path.join(__dirname, '../data/chai
 const chainConfig = chainsData[0];
 const evmChainId = chainConfig.evmChainId;
 
-// Check if we should test debug methods (can be enabled via command line)
-const testDebug = process.argv.includes('--debug');
-const testExtended = process.argv.includes('--extended');
+// Always run extended tests, and debug tests unless explicitly disabled by chain config
+const testDebug = chainConfig.rpcConfig.rpcSupportsDebug !== false;
+const testExtended = true;
 
 // Create two BatchRpc instances
 const localRpc = new BatchRpc({
@@ -46,7 +44,7 @@ const localRpc = new BatchRpc({
 
 const officialRpc = new BatchRpc({
     ...chainConfig.rpcConfig,
-    rpcSupportsDebug: testDebug || chainConfig.rpcConfig.rpcSupportsDebug
+    rpcSupportsDebug: testDebug
 });
 
 
@@ -55,7 +53,7 @@ async function compareRpcs() {
     console.log('=== RPC Comparison Script ===');
     console.log(`Local RPC: http://localhost:3080/${evmChainId}/rpc`);
     console.log(`Official RPC: ${chainConfig.rpcConfig.rpcUrl}`);
-    console.log(`Test mode: ${testDebug ? 'Debug' : 'Standard'}${testExtended ? ' + Extended' : ''}`);
+    console.log(`Test mode: ${testDebug ? 'Debug + Extended' : 'Standard + Extended'}`);
     console.log('');
 
     // 1. Compare Chain ID
@@ -125,9 +123,9 @@ async function compareRpcs() {
     }
     console.log('');
 
-    // 4. Compare blocks 0-99
-    console.log('4. Fetching and comparing blocks 0-99...');
-    const blockNumbers = Array.from({ length: 100 }, (_, i) => i);
+    // 4. Compare blocks 1,10,100,1000
+    const blockNumbers = [1, 10, 100, 1000];
+    console.log(`4. Fetching and comparing blocks ${blockNumbers.join(', ')}...`);
 
     try {
         const [localBlocks, officialBlocks] = await Promise.all([
