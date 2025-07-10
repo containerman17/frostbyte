@@ -295,6 +295,11 @@ export class BatchRpc {
             const blocksToTrace = Array.from(successfullyFetchedBlocksMap.entries())
                 .filter(([_, block]) => parseInt(block.number, 16) !== 0); // Skip block 0
 
+            // IMPORTANT: DO NOT BATCH TRACE REQUESTS!
+            // debug_traceBlockByNumber is extremely computationally expensive on nodes.
+            // Batching even 10+ trace requests would likely cause timeouts.
+            // We intentionally make individual requests here for reliability.
+            // This only happens once per block, so performance impact is minimal.
             const tracePromises = blocksToTrace.map(async ([originalBlockIndex, block]) => {
                 const result = await this.makeRpcCall<EVMTypes.RpcTraceResult[]>('debug_traceBlockByNumber', [
                     block.number,

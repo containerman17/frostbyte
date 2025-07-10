@@ -1,6 +1,6 @@
 {
   "name": "frostbyte-sdk",
-  "version": "1.0.3",
+  "version": "1.0.5",
   "description": "A high-performance blockchain indexer with TypeScript plugin support",
   "type": "module",
   "main": "dist/index.js",
