@@ -207,12 +207,12 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
                 hide: true
             }
         }, async (request, reply) => {
-            return reply.type('text/html').send(`<a href="/docs">OpenAPI documentation</a>`);
+            return reply.type('text/html').send(`<a href="/api/docs">OpenAPI documentation</a>`);
         });
     }
 
     // Add docs route
-    app.get('/docs', {
+    app.get('/api/docs', {
         schema: {
             hide: true
         }

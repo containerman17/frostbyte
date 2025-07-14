@@ -16,7 +16,7 @@ const module: ApiPlugin = {
     requiredIndexers: [], // This API doesn't need any indexer databases
 
     registerRoutes: (app, dbCtx) => {
-        app.get('/chains', {
+        app.get('/api/chains', {
             schema: {
                 response: {
                     200: {

@@ -13,7 +13,7 @@ const module: ApiPlugin = {
     requiredIndexers: ["teleporter_messages"],
 
     registerRoutes: (app, dbCtx) => {
-        app.get('/metrics/dailyMessageVolume', {
+        app.get('/api/metrics/dailyMessageVolume', {
             schema: {
                 querystring: {
                     type: 'object',

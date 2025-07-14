@@ -14,7 +14,7 @@ const module: ApiPlugin = {
         app.get<{
             Params: { chainId: string };
             Querystring: { count?: number }
-        }>('/:chainId/stats/tps', {
+        }>('/api/:chainId/stats/tps', {
             schema: {
                 params: {
                     type: 'object',
@@ -100,7 +100,7 @@ const module: ApiPlugin = {
         app.get<{
             Params: { chainId: string };
             Querystring: { timestamp?: number }
-        }>('/:chainId/stats/cumulative-txs', {
+        }>('/api/:chainId/stats/cumulative-txs', {
             schema: {
                 params: {
                     type: 'object',

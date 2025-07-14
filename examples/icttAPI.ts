@@ -24,7 +24,7 @@ const module: ApiPlugin = {
     requiredIndexers: ['ictt'],
 
     registerRoutes: (app, dbCtx) => {
-        app.get('/ictt/contract-homes', {
+        app.get('/api/ictt/contract-homes', {
             schema: {
                 response: {
                     200: {

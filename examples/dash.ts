@@ -65,7 +65,7 @@ const module: ApiPlugin = {
     <div class="mx-4">
         <div class="flex justify-between items-center mb-8">
             <h1 class="text-3xl font-bold text-gray-800">FrostByte Chain Status</h1>
-            <a href="/docs" class="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors">
+            <a href="/api/docs" class="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors">
                 API Documentation
             </a>
         </div>
