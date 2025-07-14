@@ -6,11 +6,6 @@ const module: IndexingPlugin = {
     version: 4,
     usesTraces: false,
 
-    wipe: async (db) => {
-        db.exec('DROP TABLE IF EXISTS minute_tx_counts');
-        db.exec('DROP TABLE IF EXISTS cumulative_tx_counts');
-    },
-
     initialize: async (db) => {
         db.exec(`
             CREATE TABLE minute_tx_counts (

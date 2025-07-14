@@ -8,7 +8,6 @@ function isIndexingPlugin(plugin: any): plugin is IndexingPlugin {
         typeof plugin.name === 'string' &&
         typeof plugin.version === 'number' &&
         typeof plugin.usesTraces === 'boolean' &&
-        typeof plugin.wipe === 'function' &&
         typeof plugin.initialize === 'function' &&
         typeof plugin.handleTxBatch === 'function' &&
         !plugin.requiredIndexers; // API plugins have requiredIndexers

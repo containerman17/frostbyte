@@ -1,6 +1,9 @@
 import type { ApiPlugin } from "../index";
 
-const C_CHAIN_ID = "2q9e4r6Mu3U68nU1fYjgbR6JvwrRx36CohpAX5UQxse55x1Q5"
+const WELL_KNOWN_CHAINS: Record<string, string> = {
+    '2LFmzhHDKxkreihEtPanVmofuFn63bsh8twnRXEbDhBtCJxURB': 'Henesys',
+    '2q9e4r6Mu3U68nU1fYjgbR6JvwrRx36CohpAX5UQxse55x1Q5': 'C-Chain',
+};
 
 type LeaderboardEntry = {
     fromChain: string;
@@ -25,10 +28,6 @@ const module: ApiPlugin = {
             const chainNameById = new Map<string, string>();
             for (const config of configs) {
                 chainNameById.set(config.blockchainId, config.chainName);
-            }
-            // Special case for C_CHAIN_ID if not present
-            if (!chainNameById.has(C_CHAIN_ID)) {
-                chainNameById.set(C_CHAIN_ID, "C-Chain");
             }
 
             // Map to store aggregated counts, preferring incoming over outgoing
@@ -70,8 +69,8 @@ const module: ApiPlugin = {
                         if (row.is_outgoing === 1) {
                             // Outgoing: from this chain to other chain
                             const key: ChainPairKey = `${config.blockchainId}->${row.other_chain_id}`;
-                            const fromName = chainNameById.get(config.blockchainId) || config.blockchainId;
-                            const toName = chainNameById.get(row.other_chain_id) || row.other_chain_id;
+                            const fromName = chainNameById.get(config.blockchainId) || WELL_KNOWN_CHAINS[config.blockchainId] || config.blockchainId;
+                            const toName = chainNameById.get(row.other_chain_id) || WELL_KNOWN_CHAINS[row.other_chain_id] || row.other_chain_id;
                             const existing = pairCounts.get(key) || {
                                 fromChain: config.blockchainId,
                                 toChain: row.other_chain_id,
@@ -83,8 +82,8 @@ const module: ApiPlugin = {
                         } else {
                             // Incoming: from other chain to this chain
                             const key: ChainPairKey = `${row.other_chain_id}->${config.blockchainId}`;
-                            const fromName = chainNameById.get(row.other_chain_id) || "Unknown";
-                            const toName = chainNameById.get(config.blockchainId) || "Unknown";
+                            const fromName = chainNameById.get(row.other_chain_id) || row.other_chain_id;
+                            const toName = chainNameById.get(config.blockchainId) || config.blockchainId;
                             const existing = pairCounts.get(key) || {
                                 fromChain: row.other_chain_id,
                                 toChain: config.blockchainId,

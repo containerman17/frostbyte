@@ -16,6 +16,8 @@ export { prepQueryCached } from './lib/prep';
 // BlockDB is passed to handleTxBatch
 export type { BlockDB } from './blockFetcher/BlockDB';
 
+export * as abiUtils from './lib/abiUtils';
+
 export * as dateUtils from "./lib/dateUtils";
 export * as encodingUtils from "./lib/encodingUtils";
 

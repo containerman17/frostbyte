@@ -24,11 +24,6 @@ const module: IndexingPlugin = {
     version: 1,
     usesTraces: false,
     
-    // Reset all plugin data
-    wipe: (db) => {
-        db.exec(\`DROP TABLE IF EXISTS ${name}_data\`);
-    },
-    
     // Initialize tables
     initialize: (db) => {
         db.exec(\`

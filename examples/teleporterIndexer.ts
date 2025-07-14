@@ -14,11 +14,6 @@ const module: IndexingPlugin = {
     version: 4,
     usesTraces: false,
 
-    // Reset all plugin data
-    wipe: (db: Sqlite3Database) => {
-        db.exec(`DROP TABLE IF EXISTS teleporter_messages`);
-    },
-
     // Initialize tables
     initialize: (db: Sqlite3Database) => {
         db.exec(`

@@ -16,6 +16,9 @@
     "build:watch": "tsc --watch",
     "prepublishOnly": "npm run build",
     "dev:start": "npx tsx cli.ts run --plugins-dir ./examples --data-dir ./data",
+    "dev:indexer": "ROLES=indexer npm run dev:start",
+    "dev:api": "ROLES=api npm run dev:start",
+    "dev:fetcher": "ROLES=fetcher npm run dev:start",
     "dev": "nodemon --watch plugins --watch data --exec \"npm run dev:start\"",
     "clean": "rm -rf data/*/indexing*",
     "kill": "pkill -f 'tsx cli.ts run --plugins-dir ./examples --data-dir ./data'"
@@ -27,8 +30,7 @@
     "avax",
     "typescript"
   ],
-  "author": "",
-  "license": "MIT",
+  "author": "containerman17",
   "repository": {
     "type": "git",
     "url": "https://github.com/containerman17/frostbyte.git"
@@ -40,18 +42,16 @@
     "@avalabs/avalanchejs": "^5.0.0",
     "@fastify/swagger": "^9.5.1",
     "@fastify/swagger-ui": "^5.2.3",
-    "@noble/curves": "^1.9.2",
     "@types/json-diff": "^1.0.3",
     "better-sqlite3": "^12.1.1",
     "dotenv": "^17.0.0",
     "fastify": "^5.4.0",
     "json-diff": "^1.0.6",
-    "lz4-napi": "^2.8.0",
     "p-queue": "^8.1.0",
     "pino-pretty": "^13.0.0",
     "tsx": "^4.6.2",
     "typescript": "^5.8.3",
-    "yaml": "^2.8.0",
+    "viem": "^2.31.7",
     "yargs": "^17.7.2",
     "zod": "^3.25.74",
     "zstd-napi": "^0.0.12"
@@ -59,7 +59,6 @@
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.0.10",
-    "@types/yargs": "^17.0.33",
-    "jsondiffpatch": "^0.7.3"
+    "@types/yargs": "^17.0.33"
   }
 }
