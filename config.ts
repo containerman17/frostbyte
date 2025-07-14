@@ -7,6 +7,7 @@ dotenv.config();
 
 export const IS_DEVELOPMENT = process.env['NODE_ENV'] !== 'production';
 export const DATA_DIR = requiredEnvString('DATA_DIR');
+export const ASSETS_DIR = process.env['ASSETS_DIR'];
 
 function requiredEnvString(name: string): string {
     const value = process.env[name];

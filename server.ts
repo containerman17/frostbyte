@@ -8,8 +8,10 @@ import { ChainConfig } from './config.js';
 import Database from 'better-sqlite3';
 import { getPluginDirs } from './config.js';
 import fs from 'node:fs';
+import path from 'node:path';
 import chainsApiPlugin from './standardPlugins/chainsApi.js';
 import rpcApiPlugin from './standardPlugins/rpcApi.js';
+import { ASSETS_DIR } from './config.js';
 
 const docsPage = `
 <!doctype html>
@@ -97,6 +99,20 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
         }
     });
 
+    // Validate ASSETS_DIR configuration if provided
+    if (ASSETS_DIR) {
+        const indexPath = path.join(ASSETS_DIR, 'index.html');
+        if (!fs.existsSync(indexPath)) {
+            throw new Error(`ASSETS_DIR is configured but index.html not found at ${indexPath}. This is a misconfiguration.`);
+        }
+
+        // Register static file serving
+        await app.register(import('@fastify/static'), {
+            root: ASSETS_DIR,
+            prefix: '/',
+            wildcard: false
+        });
+    }
 
     const blocksDbCache = new Map<number, BlockDB>();
     function getBlocksDb(evmChainId: number): BlockDB {
@@ -182,10 +198,10 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
         return reply.send(app.swagger());
     });
 
-    // Add root route only if not already registered by indexers
+    // Add root route only if not already registered by indexers and no ASSETS_DIR
     const rootRouteExists = app.hasRoute({ method: 'GET', url: '/' });
 
-    if (!rootRouteExists) {
+    if (!rootRouteExists && !ASSETS_DIR) {
         app.get('/', {
             schema: {
                 hide: true
@@ -203,6 +219,17 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
     }, async (request, reply) => {
         return reply.type('text/html').send(docsPage);
     });
+
+    // SPA fallback route - must be registered last
+    if (ASSETS_DIR) {
+        app.get('/*', {
+            schema: {
+                hide: true
+            }
+        }, async (request, reply) => {
+            return reply.sendFile('index.html');
+        });
+    }
 
     return {
         app,
