@@ -227,6 +227,10 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
                 hide: true
             }
         }, async (request, reply) => {
+            // Return 404 for /assets and /api paths
+            if (request.url.startsWith('/assets/') || request.url.startsWith('/api/')) {
+                return reply.code(404).send({ error: 'Not Found' });
+            }
             return reply.sendFile('index.html');
         });
     }
