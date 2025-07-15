@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import { getIndexerDbPath } from './lib/dbPaths.js';
 import { getPluginDirs } from './config.js';
 
-const TXS_PER_LOOP = 50000;
+const TXS_PER_LOOP = 10000;
 
 export interface IndexerOptions {
     blocksDbPath: string;
