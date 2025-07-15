@@ -9,6 +9,8 @@ import fs from 'node:fs';
 import { getIndexerDbPath } from './lib/dbPaths.js';
 import { getPluginDirs } from './config.js';
 
+const TXS_PER_LOOP = 50000;
+
 export interface IndexerOptions {
     blocksDbPath: string;
     chainId: string;
@@ -61,7 +63,7 @@ async function startIndexer(
         const lastIndexedTx = getIntValue(indexingDb, `lastIndexedTx_${name}`, -1);
 
         const getStart = performance.now();
-        const transactions = blocksDb.getTxBatch(lastIndexedTx, 10000, indexer.usesTraces);
+        const transactions = blocksDb.getTxBatch(lastIndexedTx, TXS_PER_LOOP, indexer.usesTraces);
         const indexingStart = performance.now();
         hadSomethingToIndex = transactions.txs.length > 0;
 

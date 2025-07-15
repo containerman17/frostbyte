@@ -1,16 +1,5 @@
 import type { ApiPlugin } from "../index";
-
-type ContractHomeRemote = {
-    remoteBlockchainID: string;
-    remoteTokenTransferrerAddress: string;
-    initialCollateralNeeded: boolean;
-    tokenDecimals: number;
-}
-
-type ContractHome = {
-    address: string;
-    remotes: ContractHomeRemote[];
-}
+import type { ContractHome, ContractHomeData, ContractHomeRemote } from './types/ictt.types';
 
 const module: ApiPlugin = {
     name: "ictt_api",
@@ -29,6 +18,9 @@ const module: ApiPlugin = {
                                 blockchainId: { type: 'string' },
                                 evmChainId: { type: 'number' },
                                 address: { type: 'string' },
+                                callFailed: { type: 'string' },
+                                callSucceeded: { type: 'string' },
+                                tokensWithdrawn: { type: 'string' },
                                 remotes: {
                                     type: 'array',
                                     items: {
@@ -37,13 +29,28 @@ const module: ApiPlugin = {
                                             remoteBlockchainID: { type: 'string' },
                                             remoteTokenTransferrerAddress: { type: 'string' },
                                             initialCollateralNeeded: { type: 'boolean' },
-                                            tokenDecimals: { type: 'number' }
+                                            tokenDecimals: { type: 'number' },
+                                            collateralAddedCnt: { type: 'number' },
+                                            collateralAddedSum: { type: 'string' },
+                                            tokensAndCallRoutedCnt: { type: 'number' },
+                                            tokensAndCallRoutedSum: { type: 'string' },
+                                            tokensAndCallSentCnt: { type: 'number' },
+                                            tokensAndCallSentSum: { type: 'string' },
+                                            tokensRoutedCnt: { type: 'number' },
+                                            tokensRoutedSum: { type: 'string' },
+                                            tokensSentCnt: { type: 'number' },
+                                            tokensSentSum: { type: 'string' }
                                         },
-                                        required: ['remoteBlockchainID', 'remoteTokenTransferrerAddress', 'initialCollateralNeeded', 'tokenDecimals']
+                                        required: ['remoteBlockchainID', 'remoteTokenTransferrerAddress', 'initialCollateralNeeded', 'tokenDecimals',
+                                            'collateralAddedCnt', 'collateralAddedSum', 'tokensAndCallRoutedCnt', 'tokensAndCallRoutedSum',
+                                            'tokensAndCallSentCnt', 'tokensAndCallSentSum', 'tokensRoutedCnt', 'tokensRoutedSum',
+                                            'tokensSentCnt', 'tokensSentSum']
                                     }
                                 }
                             },
-                            required: ['chainName', 'blockchainId', 'evmChainId', 'address', 'remotes']
+                            required: ['chainName', 'blockchainId', 'evmChainId', 'address', 'remotes',
+                                'callFailedCnt', 'callFailedSum', 'callSucceededCnt', 'callSucceededSum',
+                                'tokensWithdrawnCnt', 'tokensWithdrawnSum']
                         }
                     }
                 }
@@ -66,11 +73,42 @@ const module: ApiPlugin = {
                     data: string;
                 }>;
 
+                // Convert from nested structure to flat structure for API
                 const contractHomes: ContractHome[] = rows.map(row => {
-                    const data = JSON.parse(row.data);
+                    const data: ContractHomeData = JSON.parse(row.data);
+                    const remotes: ContractHomeRemote[] = [];
+
+                    // Flatten the nested structure
+                    for (const [blockchainId, tokens] of Object.entries(data.remotes)) {
+                        for (const [tokenAddress, remoteData] of Object.entries(tokens)) {
+                            remotes.push({
+                                remoteBlockchainID: blockchainId,
+                                remoteTokenTransferrerAddress: tokenAddress,
+                                initialCollateralNeeded: remoteData.initialCollateralNeeded,
+                                tokenDecimals: remoteData.tokenDecimals,
+                                collateralAddedCnt: remoteData.collateralAddedCnt,
+                                collateralAddedSum: remoteData.collateralAddedSum,
+                                tokensAndCallRoutedCnt: remoteData.tokensAndCallRoutedCnt,
+                                tokensAndCallRoutedSum: remoteData.tokensAndCallRoutedSum,
+                                tokensAndCallSentCnt: remoteData.tokensAndCallSentCnt,
+                                tokensAndCallSentSum: remoteData.tokensAndCallSentSum,
+                                tokensRoutedCnt: remoteData.tokensRoutedCnt,
+                                tokensRoutedSum: remoteData.tokensRoutedSum,
+                                tokensSentCnt: remoteData.tokensSentCnt,
+                                tokensSentSum: remoteData.tokensSentSum
+                            });
+                        }
+                    }
+
                     return {
                         address: data.address,
-                        remotes: data.remotes
+                        remotes,
+                        callFailedCnt: data.callFailedCnt,
+                        callFailedSum: data.callFailedSum,
+                        callSucceededCnt: data.callSucceededCnt,
+                        callSucceededSum: data.callSucceededSum,
+                        tokensWithdrawnCnt: data.tokensWithdrawnCnt,
+                        tokensWithdrawnSum: data.tokensWithdrawnSum
                     };
                 });
 
