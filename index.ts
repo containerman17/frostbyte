@@ -23,3 +23,5 @@ export * as encodingUtils from "./lib/encodingUtils";
 
 export { default as RPCIndexerAPIPlugin } from './standardPlugins/rpcApi';
 export { default as ChainsIndexerAPIPlugin } from './standardPlugins/chainsApi';
+
+export { decodeEventLog as decodeEventLogViem, type Log as ViemLog } from "viem";
