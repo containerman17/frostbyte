@@ -1,6 +1,7 @@
 import { decodeEventLog, Log } from "viem";
 import { type IndexingPlugin, abiUtils, prepQueryCached } from "../index";
 import ERC20TokenHome from './abi/ERC20TokenHome.abi.json';
+import { hexToCB58 } from "../lib/encodingUtils";
 
 const events = abiUtils.getEventHashesMap(ERC20TokenHome as abiUtils.AbiItem[]);
 
@@ -10,7 +11,7 @@ const decodeRemoteRegistered = (log: Log) => {
         data: log.data,
         topics: log.topics,
     }).args as {
-        remoteBlockchainID: `0x${string}`;
+        remoteBlockchainID: string;
         remoteTokenTransferrerAddress: `0x${string}`;
         initialCollateralNeeded: bigint;
         tokenDecimals: number;
@@ -24,7 +25,7 @@ const decodeRemoteRegistered = (log: Log) => {
 type ContractHomeData = {
     address: `0x${string}`;
     remotes: {
-        remoteBlockchainID: `0x${string}`;
+        remoteBlockchainID: string;
         remoteTokenTransferrerAddress: `0x${string}`;
         initialCollateralNeeded: boolean;
         tokenDecimals: number;
@@ -33,7 +34,7 @@ type ContractHomeData = {
 
 const module: IndexingPlugin = {
     name: "ictt",
-    version: 1,
+    version: 2,
     usesTraces: false,
 
     initialize: (db) => {
@@ -72,7 +73,7 @@ const module: IndexingPlugin = {
 
                     // Add the remote registration
                     homeData.remotes.push({
-                        remoteBlockchainID: event.remoteBlockchainID,
+                        remoteBlockchainID: hexToCB58(event.remoteBlockchainID),
                         remoteTokenTransferrerAddress: event.remoteTokenTransferrerAddress,
                         initialCollateralNeeded: event.initialCollateralNeeded,
                         tokenDecimals: event.tokenDecimals

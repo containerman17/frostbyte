@@ -12,13 +12,6 @@ type ContractHome = {
     remotes: ContractHomeRemote[];
 }
 
-type ChainContractHomes = {
-    chainName: string;
-    blockchainId: string;
-    evmChainId: number;
-    contractHomes: ContractHome[];
-}
-
 const module: ApiPlugin = {
     name: "ictt_api",
     requiredIndexers: ['ictt'],
@@ -35,38 +28,29 @@ const module: ApiPlugin = {
                                 chainName: { type: 'string' },
                                 blockchainId: { type: 'string' },
                                 evmChainId: { type: 'number' },
-                                contractHomes: {
+                                address: { type: 'string' },
+                                remotes: {
                                     type: 'array',
                                     items: {
                                         type: 'object',
                                         properties: {
-                                            address: { type: 'string' },
-                                            remotes: {
-                                                type: 'array',
-                                                items: {
-                                                    type: 'object',
-                                                    properties: {
-                                                        remoteBlockchainID: { type: 'string' },
-                                                        remoteTokenTransferrerAddress: { type: 'string' },
-                                                        initialCollateralNeeded: { type: 'boolean' },
-                                                        tokenDecimals: { type: 'number' }
-                                                    },
-                                                    required: ['remoteBlockchainID', 'remoteTokenTransferrerAddress', 'initialCollateralNeeded', 'tokenDecimals']
-                                                }
-                                            }
+                                            remoteBlockchainID: { type: 'string' },
+                                            remoteTokenTransferrerAddress: { type: 'string' },
+                                            initialCollateralNeeded: { type: 'boolean' },
+                                            tokenDecimals: { type: 'number' }
                                         },
-                                        required: ['address', 'remotes']
+                                        required: ['remoteBlockchainID', 'remoteTokenTransferrerAddress', 'initialCollateralNeeded', 'tokenDecimals']
                                     }
                                 }
                             },
-                            required: ['chainName', 'blockchainId', 'evmChainId', 'contractHomes']
+                            required: ['chainName', 'blockchainId', 'evmChainId', 'address', 'remotes']
                         }
                     }
                 }
             }
         }, async (request, reply) => {
             const configs = dbCtx.getAllChainConfigs();
-            const results: ChainContractHomes[] = [];
+            const results: (ContractHome & { chainName: string; blockchainId: string; evmChainId: number; })[] = [];
 
             for (const config of configs) {
                 const db = dbCtx.indexerDbFactory(config.evmChainId, 'ictt');
@@ -90,13 +74,12 @@ const module: ApiPlugin = {
                     };
                 });
 
-                // Only add chains that have contract homes
-                if (contractHomes.length > 0) {
+                for (const home of contractHomes) {
                     results.push({
+                        ...home,
                         chainName: config.chainName,
                         blockchainId: config.blockchainId,
                         evmChainId: config.evmChainId,
-                        contractHomes
                     });
                 }
             }
