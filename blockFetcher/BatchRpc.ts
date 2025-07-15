@@ -55,6 +55,10 @@ export class BatchRpc {
             interval: 1000, // 1 second
             intervalCap: rps
         });
+        // Prevent unhandled 'error' events from crashing the process
+        this.queue.on('error', error => {
+            console.error('BatchRpc queue error:', error);
+        });
         this.requestBatchSize = requestBatchSize;
         this.enableBatchSizeGrowth = enableBatchSizeGrowth;
         this.rpcSupportsDebug = rpcSupportsDebug;

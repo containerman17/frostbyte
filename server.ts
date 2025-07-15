@@ -8,8 +8,10 @@ import { ChainConfig } from './config.js';
 import Database from 'better-sqlite3';
 import { getPluginDirs } from './config.js';
 import fs from 'node:fs';
+import path from 'node:path';
 import chainsApiPlugin from './standardPlugins/chainsApi.js';
 import rpcApiPlugin from './standardPlugins/rpcApi.js';
+import { ASSETS_DIR } from './config.js';
 
 const docsPage = `
 <!doctype html>
@@ -17,7 +19,7 @@ const docsPage = `
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-    <title>Elements in HTML</title>
+    <title>Frostbyte API explorer</title>
   
     <script src="https://unpkg.com/@stoplight/elements/web-components.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/@stoplight/elements/styles.min.css">
@@ -97,6 +99,20 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
         }
     });
 
+    // Validate ASSETS_DIR configuration if provided
+    if (ASSETS_DIR) {
+        const indexPath = path.join(ASSETS_DIR, 'index.html');
+        if (!fs.existsSync(indexPath)) {
+            throw new Error(`ASSETS_DIR is configured but index.html not found at ${indexPath}. This is a misconfiguration.`);
+        }
+
+        // Register static file serving
+        await app.register(import('@fastify/static'), {
+            root: ASSETS_DIR,
+            prefix: '/',
+            wildcard: false
+        });
+    }
 
     const blocksDbCache = new Map<number, BlockDB>();
     function getBlocksDb(evmChainId: number): BlockDB {
@@ -182,27 +198,42 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
         return reply.send(app.swagger());
     });
 
-    // Add root route only if not already registered by indexers
+    // Add root route only if not already registered by indexers and no ASSETS_DIR
     const rootRouteExists = app.hasRoute({ method: 'GET', url: '/' });
 
-    if (!rootRouteExists) {
+    if (!rootRouteExists && !ASSETS_DIR) {
         app.get('/', {
             schema: {
                 hide: true
             }
         }, async (request, reply) => {
-            return reply.type('text/html').send(`<a href="/docs">OpenAPI documentation</a>`);
+            return reply.type('text/html').send(`<a href="/api/docs">OpenAPI documentation</a>`);
         });
     }
 
     // Add docs route
-    app.get('/docs', {
+    app.get('/api/docs', {
         schema: {
             hide: true
         }
     }, async (request, reply) => {
         return reply.type('text/html').send(docsPage);
     });
+
+    // SPA fallback route - must be registered last
+    if (ASSETS_DIR) {
+        app.get('/*', {
+            schema: {
+                hide: true
+            }
+        }, async (request, reply) => {
+            // Return 404 for /assets and /api paths
+            if (request.url.startsWith('/assets/') || request.url.startsWith('/api/')) {
+                return reply.code(404).send({ error: 'Not Found' });
+            }
+            return reply.sendFile('index.html');
+        });
+    }
 
     return {
         app,

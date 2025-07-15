@@ -22,13 +22,10 @@ export type TxBatch = {
 /** Indexing plugin - processes blockchain data and stores in its own database */
 export interface IndexingPlugin {
     name: string;          // unique slug, no whitespaces only a-z0-9-_
-    version: number;       // bump → wipe() runs
+    version: number;       // bump wipes the database
     usesTraces: boolean;   // if true, traces are included in the batch, that's 3x slower
 
-    /** Called **once** if storedVersion ≠ version. */
-    wipe: (db: SQLite.Database) => void | Promise<void>;
-
-    /** Called once after wipe (if any). Create tables here. */
+    /** Called once. Create tables here. */
     initialize: (db: SQLite.Database) => void | Promise<void>;
 
     handleTxBatch: (

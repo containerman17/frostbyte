@@ -83,11 +83,6 @@ const module: IndexingPlugin = {
     version: 1,
     usesTraces: false,
 
-    // Called when version changes
-    wipe: (db) => {
-        db.exec(`DROP TABLE IF EXISTS my_data`);
-    },
-
     // Called once on startup
     initialize: (db) => {
         db.exec(`CREATE TABLE IF NOT EXISTS my_data (...)`);

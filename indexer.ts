@@ -7,7 +7,9 @@ import { getIntValue, initializeIndexingDB, setIntValue, performIndexingPostCatc
 import { IndexingPlugin } from './lib/types.js';
 import fs from 'node:fs';
 import { getIndexerDbPath } from './lib/dbPaths.js';
-import { getPluginDirs } from './config.js';
+import { getCurrentChainConfig, getPluginDirs } from './config.js';
+
+const TXS_PER_LOOP = 10000;
 
 export interface IndexerOptions {
     blocksDbPath: string;
@@ -27,7 +29,8 @@ async function startIndexer(
     exitWhenDone: boolean,
     debugEnabled: boolean
 ): Promise<void> {
-    console.log(`[${indexer.name}] Starting indexer v${indexer.version}`);
+    const chainConfig = getCurrentChainConfig();
+    console.log(`[${indexer.name} - ${chainConfig.chainName}] Starting indexer v${indexer.version}`);
     const name = indexer.name;
     const version = indexer.version;
 
@@ -47,7 +50,7 @@ async function startIndexer(
 
     if (!dbExists) {
         // Initialize a new database for this indexer
-        console.log(`[${name}] Initializing new database at ${indexerDbPath}`);
+        console.log(`[${name} - ${chainConfig.chainName}] Initializing new database at ${indexerDbPath}`);
         await indexer.initialize(indexingDb);
     }
 
@@ -61,7 +64,7 @@ async function startIndexer(
         const lastIndexedTx = getIntValue(indexingDb, `lastIndexedTx_${name}`, -1);
 
         const getStart = performance.now();
-        const transactions = blocksDb.getTxBatch(lastIndexedTx, 10000, indexer.usesTraces);
+        const transactions = blocksDb.getTxBatch(lastIndexedTx, TXS_PER_LOOP, indexer.usesTraces);
         const indexingStart = performance.now();
         hadSomethingToIndex = transactions.txs.length > 0;
 
@@ -75,7 +78,7 @@ async function startIndexer(
 
             if (blocksDbCaughtUp === 1 && indexingDbCaughtUp !== 1) {
                 // Blocks DB caught up but indexing DB hasn't - flag for post-catch-up maintenance
-                console.log(`[${name}] Blocks DB caught up! Will trigger indexing DB post-catch-up maintenance...`);
+                console.log(`[${name} - ${chainConfig.chainName}] Blocks DB caught up! Will trigger indexing DB post-catch-up maintenance...`);
                 needsPostCatchUpMaintenance = true;
             } else if (blocksDbCaughtUp === 1 && indexingDbCaughtUp === 1) {
                 // Both caught up - flag for periodic maintenance
@@ -94,9 +97,15 @@ async function startIndexer(
         const lastTx = transactions.txs[transactions.txs.length - 1]!;
         setIntValue(indexingDb, `lastIndexedTx_${name}`, lastTx.txNum);
 
+        const lastStoredBlock: number = blocksDb.getLastStoredBlockNumber()
+        const lastIndexedBlock: string = transactions.txs[transactions.txs.length - 1]!.receipt.blockNumber;
+        const lastIndexedBlockNum = parseInt(lastIndexedBlock);
+        const indexingPercentage = ((lastIndexedBlockNum / lastStoredBlock) * 100).toFixed(2);
+
         console.log(
-            `[${name}] Retrieved ${transactions.txs.length} txs in ${Math.round(indexingStart - getStart)}ms`,
-            `Indexed ${transactions.txs.length} txs in ${Math.round(indexingFinish - indexingStart)}ms`
+            `[${name} - ${chainConfig.chainName}] Retrieved ${transactions.txs.length} txs in ${Math.round(indexingStart - getStart)}ms`,
+            `Indexed ${transactions.txs.length} txs in ${Math.round(indexingFinish - indexingStart)}ms`,
+            `(${indexingPercentage}% - block ${lastIndexedBlockNum}/${lastStoredBlock})`
         );
     });
 
@@ -119,7 +128,7 @@ async function startIndexer(
                     await new Promise(resolve => setTimeout(resolve, 100));
                 }
             }
-            console.log(`[${name}] Indexing complete - no more blocks to process`);
+            console.log(`[${name} - ${chainConfig.chainName}] Indexing complete - no more blocks to process`);
         } else {
             // Run continuously
             while (true) {
