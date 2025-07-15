@@ -81,7 +81,7 @@ export async function startFetchingLoop(blockDB: BlockDB, batchRpc: BatchRpc, bl
             const secondsLeft = blocksLeft / blocksPerSecond;
             console.log(`[${chainName}] Fetched ${blocks.length} blocks in ${Math.round(end - start)}ms, that's ~${Math.round(blocksPerSecond)} blocks/s, ${blocksLeft.toLocaleString()} blocks left, ~${formatSeconds(secondsLeft)} left`);
         } catch (error) {
-            console.error(error);
+            console.error(`[${chainName}] Error fetching/storing blocks ${startBlock}-${endBlock}:`, error);
             await new Promise(resolve => setTimeout(resolve, ERROR_PAUSE_TIME));
         }
     }
