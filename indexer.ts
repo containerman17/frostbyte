@@ -61,7 +61,7 @@ async function startIndexer(
         const lastIndexedTx = getIntValue(indexingDb, `lastIndexedTx_${name}`, -1);
 
         const getStart = performance.now();
-        const transactions = blocksDb.getTxBatch(lastIndexedTx, 100000, indexer.usesTraces);
+        const transactions = blocksDb.getTxBatch(lastIndexedTx, 10000, indexer.usesTraces);
         const indexingStart = performance.now();
         hadSomethingToIndex = transactions.txs.length > 0;
 
