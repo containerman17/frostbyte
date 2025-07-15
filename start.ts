@@ -9,6 +9,14 @@ import { createApiServer } from './server.js';
 import { startSingleIndexer, getAvailableIndexers } from './indexer.js';
 import { awaitIndexerDatabases, getBlocksDbPath } from './lib/dbPaths.js';
 
+// Log any uncaught exceptions or promise rejections to aid debugging of worker crashes
+process.on('unhandledRejection', reason => {
+    console.error('Unhandled promise rejection:', reason);
+});
+process.on('uncaughtException', error => {
+    console.error('Uncaught exception:', error);
+});
+
 if (cluster.isPrimary) {
     const roles = process.env['ROLES']?.split(',') || ['fetcher', 'api', 'indexer'];
     let apiStarted = false;
