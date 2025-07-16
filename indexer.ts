@@ -60,20 +60,21 @@ async function startIndexer(
     let needsPostCatchUpMaintenance = false;
     let needsPeriodicMaintenance = false;
 
-    const runIndexing = indexingDb.transaction(() => {
+    const runIndexingIteration = async () => {
+        // Get last indexed transaction from SQLite
         const lastIndexedTx = getIntValue(indexingDb, `lastIndexedTx_${name}`, -1);
 
+        // Fetch data from BlockDB (outside of SQLite transaction)
         const getStart = performance.now();
-        const transactions = blocksDb.getTxBatch(lastIndexedTx, TXS_PER_LOOP, indexer.usesTraces);
+        const transactions = await blocksDb.getTxBatch(lastIndexedTx, TXS_PER_LOOP, indexer.usesTraces);
         const indexingStart = performance.now();
         hadSomethingToIndex = transactions.txs.length > 0;
-
 
         if (!hadSomethingToIndex) {
             consecutiveEmptyBatches++;
 
             // Check if blocks database has caught up and trigger maintenance if needed
-            const blocksDbCaughtUp = blocksDb.getIsCaughtUp();
+            const blocksDbCaughtUp = await blocksDb.getIsCaughtUp();
             const indexingDbCaughtUp = getIntValue(indexingDb, 'is_caught_up', -1);
 
             if (blocksDbCaughtUp === 1 && indexingDbCaughtUp !== 1) {
@@ -90,30 +91,37 @@ async function startIndexer(
 
         consecutiveEmptyBatches = 0;
 
-        indexer.handleTxBatch(indexingDb, blocksDb, transactions);
+        // Get last stored block number from BlockDB (outside of SQLite transaction)
+        const lastStoredBlock = await blocksDb.getLastStoredBlockNumber();
 
-        const indexingFinish = performance.now();
-        // Assuming txs have an 'id' or similar sequential identifier
-        const lastTx = transactions.txs[transactions.txs.length - 1]!;
-        setIntValue(indexingDb, `lastIndexedTx_${name}`, lastTx.txNum);
+        // Now run the SQLite transaction with the fetched data
+        const runIndexingTransaction = indexingDb.transaction(() => {
+            indexer.handleTxBatch(indexingDb, blocksDb, transactions);
 
-        const lastStoredBlock: number = blocksDb.getLastStoredBlockNumber()
-        const lastIndexedBlock: string = transactions.txs[transactions.txs.length - 1]!.receipt.blockNumber;
-        const lastIndexedBlockNum = parseInt(lastIndexedBlock);
-        const indexingPercentage = ((lastIndexedBlockNum / lastStoredBlock) * 100).toFixed(2);
+            const indexingFinish = performance.now();
+            // Assuming txs have an 'id' or similar sequential identifier
+            const lastTx = transactions.txs[transactions.txs.length - 1]!;
+            setIntValue(indexingDb, `lastIndexedTx_${name}`, lastTx.txNum);
 
-        console.log(
-            `[${name} - ${chainConfig.chainName}] Retrieved ${transactions.txs.length} txs in ${Math.round(indexingStart - getStart)}ms`,
-            `Indexed ${transactions.txs.length} txs in ${Math.round(indexingFinish - indexingStart)}ms`,
-            `(${indexingPercentage}% - block ${lastIndexedBlockNum}/${lastStoredBlock})`
-        );
-    });
+            const lastIndexedBlock: string = transactions.txs[transactions.txs.length - 1]!.receipt.blockNumber;
+            const lastIndexedBlockNum = parseInt(lastIndexedBlock);
+            const indexingPercentage = ((lastIndexedBlockNum / lastStoredBlock) * 100).toFixed(2);
+
+            console.log(
+                `[${name} - ${chainConfig.chainName}] Retrieved ${transactions.txs.length} txs in ${Math.round(indexingStart - getStart)}ms`,
+                `Indexed ${transactions.txs.length} txs in ${Math.round(indexingFinish - indexingStart)}ms`,
+                `(${indexingPercentage}% - block ${lastIndexedBlockNum}/${lastStoredBlock})`
+            );
+        });
+
+        runIndexingTransaction();
+    };
 
     try {
         if (exitWhenDone) {
             // Run until we have consecutive empty batches
             while (consecutiveEmptyBatches < requiredEmptyBatches) {
-                runIndexing();
+                await runIndexingIteration();
 
                 // Perform maintenance outside of transaction
                 if (needsPostCatchUpMaintenance) {
@@ -132,7 +140,7 @@ async function startIndexer(
         } else {
             // Run continuously
             while (true) {
-                runIndexing();
+                await runIndexingIteration();
 
                 // Perform maintenance outside of transaction
                 if (needsPostCatchUpMaintenance) {
@@ -157,7 +165,13 @@ async function startIndexer(
 export async function startAllIndexers(options: IndexerOptions): Promise<void> {
     const { blocksDbPath, chainId, exitWhenDone = false, debugEnabled } = options;
 
-    const blocksDb = new BlockDB({ path: blocksDbPath, isReadonly: true, hasDebug: debugEnabled });
+    const blocksDb = new BlockDB({
+        path: blocksDbPath,
+        isReadonly: true,
+        hasDebug: debugEnabled,
+        chainId: chainId
+    });
+    await blocksDb.init();
 
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
     const indexers = await loadIndexingPlugins(getPluginDirs());
@@ -170,13 +184,19 @@ export async function startAllIndexers(options: IndexerOptions): Promise<void> {
     await Promise.all(indexerPromises);
 
     // Clean up (only reached in exitWhenDone mode)
-    blocksDb.close();
+    await blocksDb.close();
 }
 
 export async function startSingleIndexer(options: SingleIndexerOptions): Promise<void> {
     const { blocksDbPath, chainId, exitWhenDone = false, indexerName, debugEnabled } = options;
 
-    const blocksDb = new BlockDB({ path: blocksDbPath, isReadonly: true, hasDebug: debugEnabled });
+    const blocksDb = new BlockDB({
+        path: blocksDbPath,
+        isReadonly: true,
+        hasDebug: debugEnabled,
+        chainId: chainId
+    });
+    await blocksDb.init();
 
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
     const indexers = await loadIndexingPlugins(getPluginDirs());
@@ -191,7 +211,7 @@ export async function startSingleIndexer(options: SingleIndexerOptions): Promise
     await startIndexer(indexer, blocksDb, chainId, exitWhenDone, debugEnabled);
 
     // Clean up
-    blocksDb.close();
+    await blocksDb.close();
 }
 
 export async function getAvailableIndexers(): Promise<string[]> {

@@ -115,7 +115,7 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
     }
 
     const blocksDbCache = new Map<number, BlockDB>();
-    function getBlocksDb(evmChainId: number): BlockDB {
+    async function getBlocksDb(evmChainId: number): Promise<BlockDB> {
         if (blocksDbCache.has(evmChainId)) {
             return blocksDbCache.get(evmChainId)!;
         }
@@ -123,7 +123,13 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
         if (!chainConfig) {
             throw new Error(`Chain config not found for evmChainId: ${evmChainId}`);
         }
-        const blocksDb = new BlockDB({ path: getBlocksDbPath(chainConfig.blockchainId, chainConfig.rpcConfig.rpcSupportsDebug), isReadonly: true, hasDebug: chainConfig.rpcConfig.rpcSupportsDebug });
+        const blocksDb = new BlockDB({
+            path: getBlocksDbPath(chainConfig.blockchainId, chainConfig.rpcConfig.rpcSupportsDebug),
+            isReadonly: true,
+            hasDebug: chainConfig.rpcConfig.rpcSupportsDebug,
+            chainId: chainConfig.blockchainId
+        });
+        await blocksDb.init();
         blocksDbCache.set(evmChainId, blocksDb);
         return blocksDb;
     }

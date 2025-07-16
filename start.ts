@@ -20,6 +20,8 @@ process.on('uncaughtException', error => {
 if (cluster.isPrimary) {
     const roles = process.env['ROLES']?.split(',') || ['fetcher', 'api', 'indexer'];
     let apiStarted = false;
+    let fetcherStarted = false;
+
     for (let config of CHAIN_CONFIGS) {
         // Spawn workers based on roles
         for (const role of roles) {
@@ -37,9 +39,12 @@ if (cluster.isPrimary) {
                     console.log(`Spawned worker for indexer: ${indexerName}, PID: ${worker.process.pid}, Chain ID: ${config.blockchainId}`);
                 }
             } else if (role === 'fetcher') {
-                // Spawn single worker for other roles
-                const worker = cluster.fork({ ROLE: role, CHAIN_ID: config.blockchainId });
-                console.log(`Spawned worker for role: ${role}, PID: ${worker.process.pid}, Chain ID: ${config.blockchainId}`);
+                // Fetcher should be started as one process for all chains (like API)
+                if (!fetcherStarted) {
+                    const worker = cluster.fork({ ROLE: role });
+                    console.log(`Spawned worker for role: ${role}, PID: ${worker.process.pid} (handles all chains)`);
+                    fetcherStarted = true;
+                }
             } else if (role === 'api') {
                 // API would be started as one process for all chains
                 if (!apiStarted) {
@@ -85,11 +90,9 @@ if (cluster.isPrimary) {
     });
 } else {
     if (process.env['ROLE'] === 'fetcher') {
-        const chainConfig = getCurrentChainConfig();
-        const blocksDbPath = getBlocksDbPath(chainConfig.blockchainId, chainConfig.rpcConfig.rpcSupportsDebug);
-        const blocksDb = new BlockDB({ path: blocksDbPath, isReadonly: false, hasDebug: chainConfig.rpcConfig.rpcSupportsDebug });
-        const batchRpc = new BatchRpc(chainConfig.rpcConfig);
-        startFetchingLoop(blocksDb, batchRpc, chainConfig.rpcConfig.blocksPerBatch, chainConfig.chainName);
+        // Start fetching for all chains
+        const { startMultiChainFetcher } = await import('./blockFetcher/multiChainFetcher');
+        await startMultiChainFetcher(CHAIN_CONFIGS);
     } else if (process.env['ROLE'] === 'api') {
         for (let config of CHAIN_CONFIGS) {
             console.log(`Waiting for indexer databases for ${config.chainName}...`);

@@ -5,19 +5,19 @@ const NO_BLOCKS_PAUSE_TIME = 3 * 1000;
 const ERROR_PAUSE_TIME = 10 * 1000;
 
 export async function startFetchingLoop(blockDB: BlockDB, batchRpc: BatchRpc, blocksPerBatch: number, chainName: string) {
-    let latestRemoteBlock = blockDB.getBlockchainLatestBlockNum()
-    const needsChainId = blockDB.getEvmChainId() === -1;
+    let latestRemoteBlock = await blockDB.getBlockchainLatestBlockNum()
+    const needsChainId = (await blockDB.getEvmChainId()) === -1;
 
     while (true) {//Kinda wait for readiness
         try {
             const newLatestRemoteBlock = await batchRpc.getCurrentBlockNumber();
-            blockDB.setBlockchainLatestBlockNum(newLatestRemoteBlock);
+            await blockDB.setBlockchainLatestBlockNum(newLatestRemoteBlock);
             latestRemoteBlock = newLatestRemoteBlock;
 
             // Also get chain ID if needed
             if (needsChainId) {
                 const newEvmChainId = await batchRpc.getEvmChainId();
-                blockDB.setEvmChainId(newEvmChainId);
+                await blockDB.setEvmChainId(newEvmChainId);
             }
 
             break;
@@ -27,7 +27,7 @@ export async function startFetchingLoop(blockDB: BlockDB, batchRpc: BatchRpc, bl
         }
     }
 
-    let lastStoredBlock = blockDB.getLastStoredBlockNumber();
+    let lastStoredBlock = await blockDB.getLastStoredBlockNumber();
 
     while (true) {
         // Check if we've caught up to the latest remote block
@@ -38,7 +38,7 @@ export async function startFetchingLoop(blockDB: BlockDB, batchRpc: BatchRpc, bl
 
                 // Step 3: Perform periodic maintenance during idle gaps
                 try {
-                    blockDB.performPeriodicMaintenance();
+                    await blockDB.checkAndUpdateCatchUpStatus();
                 } catch (error) {
                     console.error(`[${chainName}] Periodic maintenance failed:`, error);
                     // Continue operation - maintenance failure shouldn't stop fetching
@@ -51,7 +51,7 @@ export async function startFetchingLoop(blockDB: BlockDB, batchRpc: BatchRpc, bl
             latestRemoteBlock = newLatestRemoteBlock;
             console.log(`[${chainName}] Updated latest remote block to ${latestRemoteBlock}`);
             try {
-                blockDB.setBlockchainLatestBlockNum(latestRemoteBlock);
+                await blockDB.setBlockchainLatestBlockNum(latestRemoteBlock);
             } catch (error) {
                 console.error(`[${chainName}] Failed to update blockchain latest block number:`, error);
                 // Continue - we can still fetch blocks even if we can't update this metadata
@@ -64,12 +64,12 @@ export async function startFetchingLoop(blockDB: BlockDB, batchRpc: BatchRpc, bl
             const start = performance.now();
             const blockNumbers = Array.from({ length: endBlock - startBlock + 1 }, (_, i) => startBlock + i);
             const blocks = await batchRpc.getBlocksWithReceipts(blockNumbers);
-            blockDB.storeBlocks(blocks);
+            await blockDB.storeBlocks(blocks);
             lastStoredBlock = endBlock;
 
             // Check if we just caught up and trigger maintenance if so
             try {
-                blockDB.checkAndUpdateCatchUpStatus();
+                await blockDB.checkAndUpdateCatchUpStatus();
             } catch (error) {
                 console.error(`[${chainName}] Failed to check/update catch-up status:`, error);
                 // Continue operation - status update failure shouldn't stop fetching

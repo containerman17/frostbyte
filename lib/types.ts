@@ -8,7 +8,7 @@ import {
 import { ChainConfig } from "../config";
 
 export interface RegisterRoutesContext {
-    blocksDbFactory: (evmChainId: number) => BlockDB;
+    blocksDbFactory: (evmChainId: number) => Promise<BlockDB>;
     indexerDbFactory: (evmChainId: number, indexerName: string) => SQLite.Database;
     getChainConfig: (evmChainId: number) => ChainConfig;
     getAllChainConfigs: () => ChainConfig[];

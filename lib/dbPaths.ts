@@ -4,18 +4,17 @@ import { DATA_DIR } from '../config.js';
 import { getAvailableIndexers } from '../indexer.js';
 
 /**
- * Get the path for the blocks database
+ * Get the path for the blocks database (shared across all chains)
  */
 export function getBlocksDbPath(chainId: string, debugEnabled: boolean): string {
-    const chainDir = path.join(DATA_DIR, chainId);
-
-    // Ensure directory exists
-    if (!fs.existsSync(chainDir)) {
-        fs.mkdirSync(chainDir, { recursive: true });
+    // Ensure DATA_DIR exists
+    if (!fs.existsSync(DATA_DIR)) {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
     }
 
+    // Use a single shared database for all chains
     const dbName = debugEnabled ? 'blocks.db' : 'blocks_no_dbg.db';
-    return path.join(chainDir, dbName);
+    return path.join(DATA_DIR, dbName);
 }
 
 /**
