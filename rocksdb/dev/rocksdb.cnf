@@ -1,0 +1,41 @@
+##########################################
+# Dev / CI – ≤ 10 GB total RAM, short‑lived DB
+# Very aggressive small‑scale compaction
+##########################################
+[mysqld]
+plugin-load-add = rocksdb=ha_rocksdb.so
+default-storage-engine = rocksdb
+skip-log-bin
+
+# Keep footprint tiny
+rocksdb_block_cache_size       = 1G
+rocksdb_db_write_buffer_size   = 2G
+rocksdb_max_background_jobs    = 4
+rocksdb_max_subcompactions     = 2
+max_connections                = 50
+
+rocksdb_default_cf_options = \
+  compression=kZSTD;bottommost_compression=kZSTD;compression_opts=-5:4:0;bottommost_compression_opts=-5:4:0; \
+  level_compaction_dynamic_level_bytes=true;optimize_filters_for_hits=true; \
+  memtable_prefix_bloom_size_ratio=0.02;prefix_extractor=capped:12; \
+  block_based_table_factory={cache_index_and_filter_blocks=1;filter_policy=bloomfilter:10:false;whole_key_filtering=0}; \
+  level0_file_num_compaction_trigger=2;level0_slowdown_writes_trigger=6;level0_stop_writes_trigger=8; \
+  max_write_buffer_number=4;max_bytes_for_level_base=256M;target_file_size_base=64M
+
+rocksdb_override_cf_options = __system__={compression=kZSTD};default={compression=kZSTD}
+rocksdb_compression_type            = kZSTD
+rocksdb_bottommost_compression_type = kZSTD
+rocksdb_compression_level           = 1
+rocksdb_bottommost_compression_level= 1
+rocksdb_compression_max_dict_bytes  = 65536
+
+# WAL tiny
+rocksdb_max_total_wal_size = 128M
+rocksdb_wal_dir            = /var/lib/mysql
+rocksdb_wal_compression    = kZSTD
+rocksdb_bytes_per_sync     = 4M
+rocksdb_wal_bytes_per_sync = 4M
+
+# Periodic weekly compaction safety pass
+rocksdb_periodic_compaction_seconds = 604800
+rocksdb_compaction_pri = kMinOverlappingRatio

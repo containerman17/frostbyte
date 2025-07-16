@@ -1,0 +1,44 @@
+##########################################
+# Production – Ryzen 9 5950X (16 c / 128 GB)
+# Aggressive, but scaled to desktop server
+##########################################
+[mysqld]
+plugin-load-add = rocksdb=ha_rocksdb.so
+default-storage-engine = rocksdb
+skip-log-bin
+
+# Parallelism (≈¾ of cores)
+rocksdb_max_background_jobs        = 12
+rocksdb_max_subcompactions         = 4
+
+rocksdb_default_cf_options = \
+  compression=kZSTD;bottommost_compression=kZSTD;compression_opts=-14:4:0;bottommost_compression_opts=-14:4:0; \
+  level_compaction_dynamic_level_bytes=true;optimize_filters_for_hits=true; \
+  memtable_prefix_bloom_size_ratio=0.02;prefix_extractor=capped:12; \
+  block_based_table_factory={cache_index_and_filter_blocks=1;filter_policy=bloomfilter:10:false;whole_key_filtering=0}; \
+  level0_file_num_compaction_trigger=2;level0_slowdown_writes_trigger=12;level0_stop_writes_trigger=16; \
+  max_write_buffer_number=6;max_bytes_for_level_base=2G;target_file_size_base=256M
+
+rocksdb_override_cf_options = __system__={compression=kZSTD;bottommost_compression=kZSTD};default={compression=kZSTD;bottommost_compression=kZSTD}
+
+rocksdb_compression_type            = kZSTD
+rocksdb_bottommost_compression_type = kZSTD
+rocksdb_compression_level           = 1
+rocksdb_bottommost_compression_level= 1
+rocksdb_compression_max_dict_bytes  = 65536
+rocksdb_compression_zstd_max_train_bytes = 6553600
+
+# Memory – allocate ~64 GB to RocksDB
+rocksdb_block_cache_size = 32G
+rocksdb_db_write_buffer_size = 32G
+
+# WAL / I/O
+rocksdb_max_total_wal_size = 2G
+rocksdb_wal_dir            = /var/lib/mysql
+rocksdb_wal_compression    = kZSTD
+rocksdb_bytes_per_sync     = 8M
+rocksdb_wal_bytes_per_sync = 8M
+
+# Periodic weekly compaction safety pass
+rocksdb_periodic_compaction_seconds = 604800
+rocksdb_compaction_pri = kMinOverlappingRatio
