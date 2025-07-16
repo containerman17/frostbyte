@@ -13,8 +13,8 @@ export type { Database as Sqlite3Database } from 'better-sqlite3';
 export type { FastifyInstance } from 'fastify';
 
 export { prepQueryCached } from './lib/prep';
-// BlockDB is passed to handleTxBatch
-export type { BlockDB } from './blockFetcher/BlockDB';
+// BlocksDBHelper is passed to handleTxBatch
+export type { BlocksDBHelper } from './blockFetcher/BlocksDBHelper';
 
 export * as abiUtils from './lib/abiUtils';
 

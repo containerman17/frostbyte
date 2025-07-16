@@ -1,4 +1,4 @@
-import type { ApiPlugin, BlockDB, RegisterRoutesContext, evmTypes } from "../index";
+import type { ApiPlugin, BlocksDBHelper, RegisterRoutesContext, evmTypes } from "../index";
 import { utils } from "@avalabs/avalanchejs";
 
 // JSON-RPC types
@@ -19,7 +19,7 @@ interface RPCResponse {
     jsonrpc?: string;
 }
 
-async function parseBlockNumber(param: string | number | undefined, blocksDb: BlockDB): Promise<number> {
+async function parseBlockNumber(param: string | number | undefined, blocksDb: BlocksDBHelper): Promise<number> {
     if (param === undefined) return 0;
     if (typeof param === 'number') return param;
     if (param === 'latest') return await blocksDb.getLastStoredBlockNumber();
@@ -27,19 +27,19 @@ async function parseBlockNumber(param: string | number | undefined, blocksDb: Bl
     return parseInt(param, 10);
 }
 
-async function getBlockByNumber(blocksDb: BlockDB, blockNumber: number): Promise<evmTypes.RpcBlock | null> {
+async function getBlockByNumber(blocksDb: BlocksDBHelper, blockNumber: number): Promise<evmTypes.RpcBlock | null> {
     return await blocksDb.slow_getBlockWithTransactions(blockNumber);
 }
 
-async function getTxReceipt(blocksDb: BlockDB, txHash: string) {
+async function getTxReceipt(blocksDb: BlocksDBHelper, txHash: string) {
     return blocksDb.getTxReceipt(txHash);
 }
 
-async function getBlockTraces(blocksDb: BlockDB, blockNumber: number) {
+async function getBlockTraces(blocksDb: BlocksDBHelper, blockNumber: number) {
     return blocksDb.slow_getBlockTraces(blockNumber);
 }
 
-async function handleRpcRequest(blocksDb: BlockDB, request: RPCRequest, dbCtx: RegisterRoutesContext): Promise<RPCResponse> {
+async function handleRpcRequest(blocksDb: BlocksDBHelper, request: RPCRequest, dbCtx: RegisterRoutesContext): Promise<RPCResponse> {
     const response: RPCResponse = { jsonrpc: request.jsonrpc || '2.0' };
     if (request.id !== undefined) {
         // Parse numeric strings to actual numbers

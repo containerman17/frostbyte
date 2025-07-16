@@ -1,4 +1,4 @@
-import { BlockDB } from "../blockFetcher/BlockDB";
+import { BlocksDBHelper } from "../blockFetcher/BlocksDBHelper.js";
 import { FastifyInstance } from "fastify";
 import SQLite from "better-sqlite3";
 import {
@@ -8,7 +8,7 @@ import {
 import { ChainConfig } from "../config";
 
 export interface RegisterRoutesContext {
-    blocksDbFactory: (evmChainId: number) => Promise<BlockDB>;
+    blocksDbFactory: (evmChainId: number) => Promise<BlocksDBHelper>;
     indexerDbFactory: (evmChainId: number, indexerName: string) => SQLite.Database;
     getChainConfig: (evmChainId: number) => ChainConfig;
     getAllChainConfigs: () => ChainConfig[];
@@ -30,7 +30,7 @@ export interface IndexingPlugin {
 
     handleTxBatch: (
         db: SQLite.Database,
-        blocksDb: BlockDB,
+        blocksDb: BlocksDBHelper,
         batch: TxBatch,
     ) => void | Promise<void>;
 }

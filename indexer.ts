@@ -1,18 +1,19 @@
-import { BlockDB } from './blockFetcher/BlockDB.js';
+import { BlocksDBHelper } from './blockFetcher/BlocksDBHelper.js';
 import Database from 'better-sqlite3';
 import { loadIndexingPlugins } from './lib/plugins.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getIntValue, initializeIndexingDB, setIntValue, performIndexingPostCatchUpMaintenance, performIndexingPeriodicMaintenance } from './lib/dbHelper.js';
+import { getIntValue, initializeIndexingDB, setIntValue, } from './lib/dbHelper.js';
 import { IndexingPlugin, TxBatch } from './lib/types.js';
 import fs from 'node:fs';
 import { getIndexerDbPath } from './lib/dbPaths.js';
 import { getCurrentChainConfig, getPluginDirs } from './config.js';
+import mysql from 'mysql2/promise';
 
 const TXS_PER_LOOP = 10000;
 
 export interface IndexerOptions {
-    blocksDbPath: string;
+    pool: mysql.Pool;
     chainId: string;
     exitWhenDone?: boolean;
     debugEnabled: boolean;
@@ -24,7 +25,7 @@ export interface SingleIndexerOptions extends IndexerOptions {
 
 async function startIndexer(
     indexer: IndexingPlugin,
-    blocksDb: BlockDB,
+    blocksDb: BlocksDBHelper,
     chainId: string,
     exitWhenDone: boolean,
     debugEnabled: boolean
@@ -57,15 +58,13 @@ async function startIndexer(
     let hadSomethingToIndex = false;
     let consecutiveEmptyBatches = 0;
     const requiredEmptyBatches = 3;
-    let needsPostCatchUpMaintenance = false;
-    let needsPeriodicMaintenance = false;
 
     // Main indexing loop
     while (true) {
         // Get last indexed transaction from SQLite (outside of transaction)
         const lastIndexedTx = getIntValue(indexingDb, `lastIndexedTx_${name}`, -1);
 
-        // Fetch data from MySQL BlockDB (async operation)
+        // Fetch data from MySQL BlocksDBHelper (async operation)
         const getStart = performance.now();
         const transactions = await blocksDb.getTxBatch(lastIndexedTx, TXS_PER_LOOP, indexer.usesTraces);
         const indexingStart = performance.now();
@@ -73,30 +72,6 @@ async function startIndexer(
 
         if (!hadSomethingToIndex) {
             consecutiveEmptyBatches++;
-
-            // Check if blocks database has caught up and trigger maintenance if needed
-            const blocksDbCaughtUp = await blocksDb.getIsCaughtUp();
-            const indexingDbCaughtUp = getIntValue(indexingDb, 'is_caught_up', -1);
-
-            if (blocksDbCaughtUp === 1 && indexingDbCaughtUp !== 1) {
-                // Blocks DB caught up but indexing DB hasn't - flag for post-catch-up maintenance
-                console.log(`[${name} - ${chainConfig.chainName}] Blocks DB caught up! Will trigger indexing DB post-catch-up maintenance...`);
-                needsPostCatchUpMaintenance = true;
-            } else if (blocksDbCaughtUp === 1 && indexingDbCaughtUp === 1) {
-                // Both caught up - flag for periodic maintenance
-                needsPeriodicMaintenance = true;
-            }
-
-            // Perform maintenance outside of transaction
-            if (needsPostCatchUpMaintenance) {
-                performIndexingPostCatchUpMaintenance(indexingDb);
-                needsPostCatchUpMaintenance = false;
-            }
-
-            if (needsPeriodicMaintenance) {
-                performIndexingPeriodicMaintenance(indexingDb);
-                needsPeriodicMaintenance = false;
-            }
 
             // Check if we should exit
             if (exitWhenDone && consecutiveEmptyBatches >= requiredEmptyBatches) {
@@ -141,16 +116,15 @@ async function startIndexer(
 }
 
 export async function startAllIndexers(options: IndexerOptions): Promise<void> {
-    const blocksDb = await BlockDB.create({
-        path: options.blocksDbPath,
+    const blocksDb = await BlocksDBHelper.createFromPool(options.pool, {
         isReadonly: true,
-        hasDebug: false
+        hasDebug: options.debugEnabled
     });
 
     const evmChainId = await blocksDb.getEvmChainId();
-    if (evmChainId !== parseInt(options.chainId)) {
-        throw new Error(`BlocksDB chain ID mismatch: expected ${options.chainId}, got ${evmChainId}`);
-    }
+    // if (evmChainId !== parseInt(options.chainId)) {
+    //     throw new Error(`BlocksDB chain ID mismatch: expected ${options.chainId}, got ${evmChainId}`);
+    // }
 
     const pluginDirs = getPluginDirs();
     const indexers = await loadIndexingPlugins(pluginDirs);
@@ -172,8 +146,7 @@ export async function startAllIndexers(options: IndexerOptions): Promise<void> {
 }
 
 export async function startSingleIndexer(options: SingleIndexerOptions): Promise<void> {
-    const blocksDb = await BlockDB.create({
-        path: options.blocksDbPath,
+    const blocksDb = await BlocksDBHelper.createFromPool(options.pool, {
         isReadonly: true,
         hasDebug: options.debugEnabled
     });

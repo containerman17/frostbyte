@@ -2,7 +2,7 @@ import mysql from 'mysql2/promise';
 import { RpcBlock, RpcBlockTransaction, RpcTxReceipt, RpcTraceResult, StoredTx } from './evmTypes.js';
 import { StoredBlock } from './BatchRpc.js';
 
-export class BlockDB {
+export class BlocksDBHelper {
     private pool: mysql.Pool;
     private isReadonly: boolean;
     private hasDebug: boolean;
@@ -13,69 +13,31 @@ export class BlockDB {
         this.hasDebug = hasDebug;
     }
 
-    static async create({ path, isReadonly, hasDebug }: { path: string, isReadonly: boolean, hasDebug: boolean }): Promise<BlockDB> {
-        // Parse connection string from path (format: mysql://user:pass@host:port/database)
-        const url = new URL(path);
-        const databaseName = url.pathname.slice(1); // Remove leading slash
+    static async createFromPool(pool: mysql.Pool, options: { isReadonly: boolean, hasDebug: boolean }): Promise<BlocksDBHelper> {
+        const blockDB = new BlocksDBHelper(pool, options.isReadonly, options.hasDebug);
 
-        // First create the database if it doesn't exist
-        const connection = await mysql.createConnection({
-            host: url.hostname,
-            port: parseInt(url.port) || 3306,
-            user: url.username,
-            password: url.password
-        });
-
-        try {
-            // Create database if it doesn't exist
-            await connection.execute(
-                `CREATE DATABASE IF NOT EXISTS \`${databaseName}\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
-            );
-            console.log(`Database ${databaseName} ready`);
-        } finally {
-            await connection.end();
-        }
-
-        // Create the pool
-        const pool = mysql.createPool({
-            host: url.hostname,
-            port: parseInt(url.port) || 3306,
-            user: url.username,
-            password: url.password,
-            database: databaseName,
-            waitForConnections: true,
-            connectionLimit: isReadonly ? 5 : 10,
-            queueLimit: 0,
-            enableKeepAlive: true,
-            keepAliveInitialDelay: 0
-        });
-
-        // Create the instance
-        const blockDB = new BlockDB(pool, isReadonly, hasDebug);
-
-        if (!isReadonly) {
+        if (!options.isReadonly) {
             await blockDB.initSchema();
         }
 
         // Check and validate hasDebug setting
         try {
             const storedHasDebug = await blockDB.getHasDebug();
-            console.log('storedHasDebug', storedHasDebug, 'hasDebug', hasDebug);
+            console.log('storedHasDebug', storedHasDebug, 'hasDebug', options.hasDebug);
             if (storedHasDebug === -1) {
                 // Never set before, set it now
-                if (!isReadonly) {
-                    await blockDB.setHasDebug(hasDebug);
+                if (!options.isReadonly) {
+                    await blockDB.setHasDebug(options.hasDebug);
                 }
             } else {
                 // Already set, must match
                 const storedBool = storedHasDebug === 1;
-                if (storedBool !== hasDebug) {
-                    throw new Error(`Database hasDebug mismatch: stored=${storedBool}, provided=${hasDebug}`);
+                if (storedBool !== options.hasDebug) {
+                    throw new Error(`Database hasDebug mismatch: stored=${storedBool}, provided=${options.hasDebug}`);
                 }
             }
         } catch (err) {
             console.error('Failed to check hasDebug:', err);
-            await pool.end();
             throw err;
         }
 
@@ -97,43 +59,6 @@ export class BlockDB {
         );
     }
 
-    async getIsCaughtUp(): Promise<number> {
-        const [rows] = await this.pool.execute<mysql.RowDataPacket[]>(
-            'SELECT value FROM kv_int WHERE `key` = ?',
-            ['is_caught_up']
-        );
-        return rows[0]?.['value'] ?? -1;
-    }
-
-    async setIsCaughtUp(isCaughtUp: boolean): Promise<void> {
-        if (this.isReadonly) throw new Error('BlockDB is readonly');
-        await this.pool.execute(
-            'INSERT INTO kv_int (`key`, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)',
-            ['is_caught_up', isCaughtUp ? 1 : 0]
-        );
-    }
-
-    async checkAndUpdateCatchUpStatus(): Promise<boolean> {
-        if (this.isReadonly) return false;
-
-        const lastStoredBlock = await this.getLastStoredBlockNumber();
-        const latestBlockchain = await this.getBlockchainLatestBlockNum();
-        const isCaughtUp = lastStoredBlock >= latestBlockchain;
-
-        if (isCaughtUp && (await this.getIsCaughtUp()) !== 1) {
-            console.log('BlockDB: Chain caught up!');
-            await this.setIsCaughtUp(true);
-            return true;
-        }
-
-        return false;
-    }
-
-    async performPeriodicMaintenance(): Promise<void> {
-        // RocksDB handles all maintenance automatically
-        return;
-    }
-
     async getLastStoredBlockNumber(): Promise<number> {
         const [rows] = await this.pool.execute<mysql.RowDataPacket[]>(
             'SELECT MAX(number) as max_number FROM blocks'
@@ -149,16 +74,8 @@ export class BlockDB {
         return rows[0]?.['value'] ?? 0;
     }
 
-    private async setTxCount(count: number): Promise<void> {
-        if (this.isReadonly) throw new Error('BlockDB is readonly');
-        await this.pool.execute(
-            'INSERT INTO kv_int (`key`, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)',
-            ['tx_count', count]
-        );
-    }
-
     async storeBlocks(batch: StoredBlock[]): Promise<void> {
-        if (this.isReadonly) throw new Error('BlockDB is readonly');
+        if (this.isReadonly) throw new Error('BlocksDBHelper is readonly');
         if (batch.length === 0) return;
 
         let lastStoredBlockNum = await this.getLastStoredBlockNumber();
@@ -198,7 +115,7 @@ export class BlockDB {
     }
 
     async setBlockchainLatestBlockNum(blockNumber: number): Promise<void> {
-        if (this.isReadonly) throw new Error('BlockDB is readonly');
+        if (this.isReadonly) throw new Error('BlocksDBHelper is readonly');
         await this.pool.execute(
             'INSERT INTO kv_int (`key`, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)',
             ['blockchain_latest_block', blockNumber]

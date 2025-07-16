@@ -4,18 +4,6 @@ import { DATA_DIR } from '../config.js';
 import { getAvailableIndexers } from '../indexer.js';
 
 /**
- * Get the path for the blocks database
- */
-export function getBlocksDbPath(chainId: string, debugEnabled: boolean): string {
-    // Return MySQL connection string with database name including debug suffix
-    const dbName = debugEnabled
-        ? `${chainId}`
-        : `${chainId}_no_dbg`;
-
-    return `mysql://root:root@localhost:3306/${dbName}`;
-}
-
-/**
  * Get the path for an indexer database and clean up old versions
  */
 export function getIndexerDbPath(

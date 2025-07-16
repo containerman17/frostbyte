@@ -1,10 +1,10 @@
-import { BlockDB } from './blockFetcher/BlockDB.js';
+import { BlocksDBHelper } from './blockFetcher/BlocksDBHelper';
 import Fastify, { FastifyInstance } from 'fastify';
 import Sqlite3 from 'better-sqlite3';
 import { initializeIndexingDB } from './lib/dbHelper.js';
 import { loadApiPlugins, loadIndexingPlugins } from './lib/plugins.js';
-import { getBlocksDbPath, getIndexerDbPath } from './lib/dbPaths.js';
-import { ChainConfig } from './config.js';
+import { getIndexerDbPath } from './lib/dbPaths.js';
+import { getMysqlPool, ChainConfig, CHAIN_CONFIGS } from './config.js';
 import Database from 'better-sqlite3';
 import { getPluginDirs } from './config.js';
 import fs from 'node:fs';
@@ -114,8 +114,8 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
         });
     }
 
-    const blocksDbCache = new Map<number, BlockDB>();
-    async function getBlocksDb(evmChainId: number): Promise<BlockDB> {
+    const blocksDbCache = new Map<number, BlocksDBHelper>();
+    async function getBlocksDb(evmChainId: number): Promise<BlocksDBHelper> {
         if (blocksDbCache.has(evmChainId)) {
             return blocksDbCache.get(evmChainId)!;
         }
@@ -123,7 +123,11 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
         if (!chainConfig) {
             throw new Error(`Chain config not found for evmChainId: ${evmChainId}`);
         }
-        const blocksDb = await BlockDB.create({ path: getBlocksDbPath(chainConfig.blockchainId, chainConfig.rpcConfig.rpcSupportsDebug), isReadonly: true, hasDebug: chainConfig.rpcConfig.rpcSupportsDebug });
+        const pool = await getMysqlPool(chainConfig.rpcConfig.rpcSupportsDebug);
+        const blocksDb = await BlocksDBHelper.createFromPool(pool, {
+            isReadonly: true,
+            hasDebug: chainConfig.rpcConfig.rpcSupportsDebug
+        });
         blocksDbCache.set(evmChainId, blocksDb);
         return blocksDb;
     }

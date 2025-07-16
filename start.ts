@@ -1,13 +1,14 @@
 import cluster, { Worker } from 'node:cluster';
 import fs from 'node:fs';
 import path from 'node:path';
-import { BlockDB } from './blockFetcher/BlockDB.js';
+import { BlocksDBHelper } from './blockFetcher/BlocksDBHelper';
 import { startFetchingLoop } from './blockFetcher/startFetchingLoop.js';
 import { BatchRpc } from './blockFetcher/BatchRpc.js';
-import { DATA_DIR, CHAIN_CONFIGS, getCurrentChainConfig } from './config.js';
+import { DATA_DIR, CHAIN_CONFIGS, getCurrentChainConfig, getMysqlPool } from './config.js';
 import { createApiServer } from './server.js';
 import { startSingleIndexer, getAvailableIndexers } from './indexer.js';
-import { awaitIndexerDatabases, getBlocksDbPath } from './lib/dbPaths.js';
+import { awaitIndexerDatabases } from './lib/dbPaths.js';
+import { loadIndexingPlugins } from './lib/plugins.js';
 
 // Log any uncaught exceptions or promise rejections to aid debugging of worker crashes
 process.on('unhandledRejection', reason => {
@@ -86,14 +87,17 @@ if (cluster.isPrimary) {
 } else {
     if (process.env['ROLE'] === 'fetcher') {
         const chainConfig = getCurrentChainConfig();
-        const blocksDbPath = getBlocksDbPath(chainConfig.blockchainId, chainConfig.rpcConfig.rpcSupportsDebug);
-        const blocksDb = await BlockDB.create({ path: blocksDbPath, isReadonly: false, hasDebug: chainConfig.rpcConfig.rpcSupportsDebug });
+        const pool = await getMysqlPool(chainConfig.rpcConfig.rpcSupportsDebug);
+        const blocksDb = await BlocksDBHelper.createFromPool(pool, {
+            isReadonly: false,
+            hasDebug: chainConfig.rpcConfig.rpcSupportsDebug
+        });
         const batchRpc = new BatchRpc(chainConfig.rpcConfig);
         startFetchingLoop(blocksDb, batchRpc, chainConfig.rpcConfig.blocksPerBatch, chainConfig.chainName);
     } else if (process.env['ROLE'] === 'api') {
         for (let config of CHAIN_CONFIGS) {
             console.log(`Waiting for indexer databases for ${config.chainName}...`);
-            const dbDir = path.dirname(getBlocksDbPath(config.blockchainId, config.rpcConfig.rpcSupportsDebug));
+            const dbDir = path.join(DATA_DIR, config.blockchainId);
             awaitIndexerDatabases(dbDir, config.rpcConfig.rpcSupportsDebug);
         }
         const apiServer = await createApiServer(CHAIN_CONFIGS);
@@ -101,8 +105,7 @@ if (cluster.isPrimary) {
         await apiServer.start(port);
     } else if (process.env['ROLE'] === 'indexer') {
         const chainConfig = getCurrentChainConfig();
-        const blocksDbPath = getBlocksDbPath(chainConfig.blockchainId, chainConfig.rpcConfig.rpcSupportsDebug);
-        // await awaitFileExists(blocksDbPath);
+        const pool = await getMysqlPool(chainConfig.rpcConfig.rpcSupportsDebug);
 
         // Each indexer worker must have a specific indexer name
         const indexerName = process.env['INDEXER_NAME'];
@@ -112,7 +115,7 @@ if (cluster.isPrimary) {
 
         console.log(`Starting indexer worker for: ${indexerName}`);
         await startSingleIndexer({
-            blocksDbPath,
+            pool,
             chainId: chainConfig.blockchainId,
             indexerName,
             exitWhenDone: false,
@@ -120,19 +123,5 @@ if (cluster.isPrimary) {
         });
     } else {
         throw new Error('unknown role');
-    }
-}
-
-
-async function awaitFileExists(path: string, maxMs: number = 3 * 1000, intervalMs: number = 100) {
-    const startTime = Date.now();
-    while (true) {
-        if (fs.existsSync(path)) {
-            return;
-        }
-        await new Promise(resolve => setTimeout(resolve, intervalMs));
-        if (Date.now() - startTime > maxMs) {
-            throw new Error(`File ${path} did not exist after ${maxMs} ms`);
-        }
     }
 }

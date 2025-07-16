@@ -1,10 +1,10 @@
 import { BatchRpc } from "./BatchRpc.js";
-import { BlockDB } from "./BlockDB.js";
+import { BlocksDBHelper } from "./BlocksDBHelper.js"
 
 const NO_BLOCKS_PAUSE_TIME = 3 * 1000;
 const ERROR_PAUSE_TIME = 10 * 1000;
 
-export async function startFetchingLoop(blockDB: BlockDB, batchRpc: BatchRpc, blocksPerBatch: number, chainName: string) {
+export async function startFetchingLoop(blockDB: BlocksDBHelper, batchRpc: BatchRpc, blocksPerBatch: number, chainName: string) {
     let latestRemoteBlock = await blockDB.getBlockchainLatestBlockNum()
     const needsChainId = (await blockDB.getEvmChainId()) === -1;
 
@@ -34,15 +34,7 @@ export async function startFetchingLoop(blockDB: BlockDB, batchRpc: BatchRpc, bl
         if (lastStoredBlock >= latestRemoteBlock) {
             const newLatestRemoteBlock = await batchRpc.getCurrentBlockNumber();
             if (newLatestRemoteBlock === latestRemoteBlock) {
-                console.log(`[${chainName}] No new blocks, pause before checking again ${NO_BLOCKS_PAUSE_TIME / 1000}s`);
-
-                // Step 3: Perform periodic maintenance during idle gaps
-                try {
-                    blockDB.performPeriodicMaintenance();
-                } catch (error) {
-                    console.error(`[${chainName}] Periodic maintenance failed:`, error);
-                    // Continue operation - maintenance failure shouldn't stop fetching
-                }
+                console.log(`[${chainName}] No new blocks, pause before checking again ${NO_BLOCKS_PAUSE_TIME / 1000}s`)
 
                 await new Promise(resolve => setTimeout(resolve, NO_BLOCKS_PAUSE_TIME));
                 continue;
@@ -66,14 +58,6 @@ export async function startFetchingLoop(blockDB: BlockDB, batchRpc: BatchRpc, bl
             const blocks = await batchRpc.getBlocksWithReceipts(blockNumbers);
             blockDB.storeBlocks(blocks);
             lastStoredBlock = endBlock;
-
-            // Check if we just caught up and trigger maintenance if so
-            try {
-                blockDB.checkAndUpdateCatchUpStatus();
-            } catch (error) {
-                console.error(`[${chainName}] Failed to check/update catch-up status:`, error);
-                // Continue operation - status update failure shouldn't stop fetching
-            }
 
             const end = performance.now();
             const blocksLeft = latestRemoteBlock - endBlock;

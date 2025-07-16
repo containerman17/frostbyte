@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 import path from 'node:path';
 import fs from 'node:fs';
 import { z } from 'zod';
+import mysql from 'mysql2/promise';
 
 dotenv.config();
 
@@ -65,4 +66,60 @@ export function getPluginDirs(): string[] {
     }
     // Split by comma or semicolon to support multiple directories
     return PLUGIN_DIRS.split(/[,;]/).map(dir => dir.trim()).filter(dir => dir.length > 0);
+}
+
+// MySQL Pool Singleton
+let mysqlPoolPromise: Promise<mysql.Pool> | null = null;
+
+export async function getMysqlPool(debugEnabled: boolean): Promise<mysql.Pool> {
+    if (!mysqlPoolPromise) {
+        mysqlPoolPromise = createMysqlPool(debugEnabled);
+    }
+    return mysqlPoolPromise;
+}
+
+async function createMysqlPool(debugEnabled: boolean): Promise<mysql.Pool> {
+    const chainConfig = getCurrentChainConfig();
+    const dbName = debugEnabled
+        ? `${chainConfig.blockchainId}`
+        : `${chainConfig.blockchainId}_no_dbg`;
+
+    // MySQL connection details (could be moved to env vars if needed)
+    const host = process.env['MYSQL_HOST'] || 'localhost';
+    const port = parseInt(process.env['MYSQL_PORT'] || '3306');
+    const user = process.env['MYSQL_USER'] || 'root';
+    const password = process.env['MYSQL_PASSWORD'] || 'root';
+
+    // First create the database if it doesn't exist
+    const connection = await mysql.createConnection({
+        host,
+        port,
+        user,
+        password
+    });
+
+    try {
+        await connection.execute(
+            `CREATE DATABASE IF NOT EXISTS \`${dbName}\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
+        );
+        console.log(`Database ${dbName} ready`);
+    } finally {
+        await connection.end();
+    }
+
+    // Create and return the pool
+    const pool = mysql.createPool({
+        host,
+        port,
+        user,
+        password,
+        database: dbName,
+        waitForConnections: true,
+        connectionLimit: 20, // Adjust based on needs
+        queueLimit: 0,
+        enableKeepAlive: true,
+        keepAliveInitialDelay: 0
+    });
+
+    return pool;
 }
