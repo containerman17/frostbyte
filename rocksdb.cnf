@@ -1,0 +1,47 @@
+[mysqld]
+# Enable RocksDB
+plugin-load-add=rocksdb=ha_rocksdb.so
+default-storage-engine=rocksdb
+
+# Disable binary logging to save disk space
+skip-log-bin
+
+# RocksDB compression settings
+rocksdb_default_cf_options=compression=kZSTD;bottommost_compression=kZSTD;compression_opts=-14:4:0;bottommost_compression_opts=-14:4:0;level_compaction_dynamic_level_bytes=true;optimize_filters_for_hits=true;memtable_prefix_bloom_size_ratio=0.02;prefix_extractor=capped:12;block_based_table_factory={cache_index_and_filter_blocks=1;filter_policy=bloomfilter:10:false;whole_key_filtering=0};level0_file_num_compaction_trigger=4;level0_slowdown_writes_trigger=20;level0_stop_writes_trigger=30;max_write_buffer_number=4;max_bytes_for_level_base=512M;target_file_size_base=128M
+
+# Override column families to use zstd
+rocksdb_override_cf_options=__system__={compression=kZSTD;bottommost_compression=kZSTD};default={compression=kZSTD;bottommost_compression=kZSTD};
+
+# More aggressive compression settings
+rocksdb_compression_type=kZSTD
+rocksdb_bottommost_compression_type=kZSTD
+rocksdb_compression_level=1
+rocksdb_bottommost_compression_level=1
+
+# Compression dictionary (helps with repetitive data)
+# This creates a 16KB dictionary per SST file
+rocksdb_compression_max_dict_bytes=65536
+
+# For ZSTD, we can also set training data size
+# This uses up to 100x the dictionary size for training
+rocksdb_compression_zstd_max_train_bytes=6553600
+
+# Block cache (reduce if you want to save memory)
+rocksdb_block_cache_size=256M
+
+# Write buffer settings
+rocksdb_max_total_wal_size=512M
+rocksdb_wal_dir=/var/lib/mysql
+
+# Compaction settings for better compression
+rocksdb_max_background_compactions=4
+rocksdb_max_background_flushes=2
+rocksdb_bytes_per_sync=4M
+rocksdb_wal_bytes_per_sync=4M
+
+# Enable compression for WAL too
+rocksdb_wal_compression=kZSTD
+
+# Periodic compaction to ensure all data gets recompressed eventually
+# This forces recompaction of files older than 30 days
+rocksdb_periodic_compaction_seconds=2592000 

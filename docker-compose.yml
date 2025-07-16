@@ -1,0 +1,11 @@
+services:
+  mariadb:
+    image: mariadb:11.7
+    environment:
+      MYSQL_ROOT_PASSWORD: yourpassword
+      MYSQL_DATABASE: mydb
+    ports:
+      - "3306:3306"
+    volumes:
+      - mariadb_data:/var/lib/mysql
+      - ./myrocks.cnf:/etc/mysql/conf.d/myrocks.cnf 

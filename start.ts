@@ -87,7 +87,7 @@ if (cluster.isPrimary) {
     if (process.env['ROLE'] === 'fetcher') {
         const chainConfig = getCurrentChainConfig();
         const blocksDbPath = getBlocksDbPath(chainConfig.blockchainId, chainConfig.rpcConfig.rpcSupportsDebug);
-        const blocksDb = new BlockDB({ path: blocksDbPath, isReadonly: false, hasDebug: chainConfig.rpcConfig.rpcSupportsDebug });
+        const blocksDb = await BlockDB.create({ path: blocksDbPath, isReadonly: false, hasDebug: chainConfig.rpcConfig.rpcSupportsDebug });
         const batchRpc = new BatchRpc(chainConfig.rpcConfig);
         startFetchingLoop(blocksDb, batchRpc, chainConfig.rpcConfig.blocksPerBatch, chainConfig.chainName);
     } else if (process.env['ROLE'] === 'api') {
@@ -102,7 +102,7 @@ if (cluster.isPrimary) {
     } else if (process.env['ROLE'] === 'indexer') {
         const chainConfig = getCurrentChainConfig();
         const blocksDbPath = getBlocksDbPath(chainConfig.blockchainId, chainConfig.rpcConfig.rpcSupportsDebug);
-        await awaitFileExists(blocksDbPath);
+        // await awaitFileExists(blocksDbPath);
 
         // Each indexer worker must have a specific indexer name
         const indexerName = process.env['INDEXER_NAME'];

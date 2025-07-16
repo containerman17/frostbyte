@@ -5,8 +5,8 @@ const NO_BLOCKS_PAUSE_TIME = 3 * 1000;
 const ERROR_PAUSE_TIME = 10 * 1000;
 
 export async function startFetchingLoop(blockDB: BlockDB, batchRpc: BatchRpc, blocksPerBatch: number, chainName: string) {
-    let latestRemoteBlock = blockDB.getBlockchainLatestBlockNum()
-    const needsChainId = blockDB.getEvmChainId() === -1;
+    let latestRemoteBlock = await blockDB.getBlockchainLatestBlockNum()
+    const needsChainId = (await blockDB.getEvmChainId()) === -1;
 
     while (true) {//Kinda wait for readiness
         try {
@@ -27,7 +27,7 @@ export async function startFetchingLoop(blockDB: BlockDB, batchRpc: BatchRpc, bl
         }
     }
 
-    let lastStoredBlock = blockDB.getLastStoredBlockNumber();
+    let lastStoredBlock = await blockDB.getLastStoredBlockNumber();
 
     while (true) {
         // Check if we've caught up to the latest remote block
@@ -82,6 +82,9 @@ export async function startFetchingLoop(blockDB: BlockDB, batchRpc: BatchRpc, bl
             console.log(`[${chainName}] Fetched ${blocks.length} blocks in ${Math.round(end - start)}ms, that's ~${Math.round(blocksPerSecond)} blocks/s, ${blocksLeft.toLocaleString()} blocks left, ~${formatSeconds(secondsLeft)} left`);
         } catch (error) {
             console.error(`[${chainName}] Error fetching/storing blocks ${startBlock}-${endBlock}:`, error);
+            // Re-fetch the actual last stored block from database after error
+            lastStoredBlock = await blockDB.getLastStoredBlockNumber();
+            console.log(`[${chainName}] Reset lastStoredBlock to ${lastStoredBlock} after error`);
             await new Promise(resolve => setTimeout(resolve, ERROR_PAUSE_TIME));
         }
     }

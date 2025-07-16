@@ -1,0 +1,18 @@
+docker rm -f myrocks;
+docker volume rm -f mysql;
+docker volume create mysql;
+
+docker run -d --name myrocks \
+  -p 3306:3306 \
+  -e MYSQL_ROOT_PASSWORD=root \
+  -e INIT_ROCKSDB=1 \
+  -v mysql:/var/lib/mysql \
+  percona/percona-server:8.0
+
+
+# (Optional) make RocksDB the default after the plugin exists
+
+docker exec -it myrocks \
+  mysql -uroot -proot \
+  -e "SET PERSIST default_storage_engine = 'rocksdb';"
+docker restart myrocks

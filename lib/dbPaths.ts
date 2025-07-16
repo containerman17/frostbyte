@@ -7,15 +7,12 @@ import { getAvailableIndexers } from '../indexer.js';
  * Get the path for the blocks database
  */
 export function getBlocksDbPath(chainId: string, debugEnabled: boolean): string {
-    const chainDir = path.join(DATA_DIR, chainId);
+    // Return MySQL connection string with database name including debug suffix
+    const dbName = debugEnabled
+        ? `${chainId}`
+        : `${chainId}_no_dbg`;
 
-    // Ensure directory exists
-    if (!fs.existsSync(chainDir)) {
-        fs.mkdirSync(chainDir, { recursive: true });
-    }
-
-    const dbName = debugEnabled ? 'blocks.db' : 'blocks_no_dbg.db';
-    return path.join(chainDir, dbName);
+    return `mysql://root:root@localhost:3306/${dbName}`;
 }
 
 /**
