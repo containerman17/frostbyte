@@ -352,8 +352,6 @@ export class BlockDB {
     }
 
     async getTxBatch(greaterThanTxNum: number, limit: number, includeTraces: boolean): Promise<{ txs: StoredTx[], traces: RpcTraceResult[] | undefined }> {
-        console.log('getTxBatch', greaterThanTxNum, limit, includeTraces);
-
         // Ensure safe values to prevent SQL injection
         const txNumParam = Math.max(0, greaterThanTxNum);
         const limitParam = Math.min(Math.max(1, limit), 100000);
