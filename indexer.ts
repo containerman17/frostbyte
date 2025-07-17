@@ -81,6 +81,10 @@ async function startIndexer(
         if (!hadSomethingToIndex) {
             consecutiveEmptyBatches++;
 
+            if (transactions.maxTxNum > lastIndexedTx) {
+                await setIntValue(pool, `lastIndexedTx_${name}`, transactions.maxTxNum);
+            }
+
             // Check if we should exit
             if (exitWhenDone && consecutiveEmptyBatches >= requiredEmptyBatches) {
                 console.log(`[${name} - ${chainConfig.chainName}] No more transactions to index after ${requiredEmptyBatches} consecutive empty batches, exiting...`);

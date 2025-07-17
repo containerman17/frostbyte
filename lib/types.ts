@@ -17,6 +17,7 @@ export interface RegisterRoutesContext {
 export type TxBatch = {
     txs: StoredTx[];
     traces: RpcTraceResult[] | undefined;
+    maxTxNum: number;
 }
 
 /** Indexing plugin - processes blockchain data and stores in its own database */

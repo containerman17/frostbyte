@@ -335,12 +335,19 @@ export class BlocksDBHelper {
         );
     }
 
-    async getTxBatch(greaterThanTxNum: number, limit: number, includeTraces: boolean, filterEvents: string[] | undefined): Promise<{ txs: StoredTx[], traces: RpcTraceResult[] | undefined }> {
+    async getTxBatch(greaterThanTxNum: number, limit: number, includeTraces: boolean, filterEvents: string[] | undefined): Promise<{ txs: StoredTx[], traces: RpcTraceResult[] | undefined, maxTxNum: number }> {
         // Ensure safe values to prevent SQL injection
         const txNumParam = Math.max(0, greaterThanTxNum);
         const limitParam = Math.min(Math.max(1, limit), 100000);
 
         let query: string;
+
+        // Get the current maximum tx number to help callers skip expensive
+        // queries when no more results are available
+        const [maxRows] = await this.pool.query<mysql.RowDataPacket[]>(
+            'SELECT MAX(tx_num) AS max_tx_num FROM txs'
+        );
+        const maxTxNum = maxRows[0]?.['max_tx_num'] ?? -1;
 
         if (filterEvents && filterEvents.length > 0) {
             // Use the index for efficient filtering
@@ -387,7 +394,8 @@ export class BlocksDBHelper {
 
             return {
                 txs,
-                traces: this.hasDebug && includeTraces ? traces : undefined
+                traces: this.hasDebug && includeTraces ? traces : undefined,
+                maxTxNum
             };
         } else {
             // No filtering, use original query
@@ -417,7 +425,8 @@ export class BlocksDBHelper {
 
             return {
                 txs,
-                traces: this.hasDebug && includeTraces ? traces : undefined
+                traces: this.hasDebug && includeTraces ? traces : undefined,
+                maxTxNum
             };
         }
     }
