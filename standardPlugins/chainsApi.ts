@@ -42,7 +42,7 @@ const module: ApiPlugin = {
             const configs = dbCtx.getAllChainConfigs();
             const result: ChainStatus[] = [];
             for (const config of configs) {
-                const blocksDb = await dbCtx.blocksDbFactory(config.evmChainId);
+                const blocksDb = await dbCtx.getBlocksDbHelper(config.evmChainId);
 
                 const lastStoredBlockNumber = await blocksDb.getLastStoredBlockNumber();
                 const latestRemoteBlockNumber = await blocksDb.getBlockchainLatestBlockNum();

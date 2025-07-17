@@ -298,7 +298,7 @@ const registerRoutes: ApiPlugin['registerRoutes'] = (app, dbCtx) => {
         }
     }, async (request, reply) => {
         const { evmChainId } = request.params as { evmChainId: number };
-        const blocksDb = await dbCtx.blocksDbFactory(evmChainId);
+        const blocksDb = await dbCtx.getBlocksDbHelper(evmChainId);
 
         const requests = request.body as RPCRequest | RPCRequest[];
 

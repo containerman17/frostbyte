@@ -87,7 +87,7 @@ if (cluster.isPrimary) {
 } else {
     if (process.env['ROLE'] === 'fetcher') {
         const chainConfig = getCurrentChainConfig();
-        const pool = await getMysqlPool(chainConfig.rpcConfig.rpcSupportsDebug);
+        const pool = await getMysqlPool(chainConfig.rpcConfig.rpcSupportsDebug, "blocks");
         const blocksDb = await BlocksDBHelper.createFromPool(pool, {
             isReadonly: false,
             hasDebug: chainConfig.rpcConfig.rpcSupportsDebug
@@ -105,7 +105,7 @@ if (cluster.isPrimary) {
         await apiServer.start(port);
     } else if (process.env['ROLE'] === 'indexer') {
         const chainConfig = getCurrentChainConfig();
-        const pool = await getMysqlPool(chainConfig.rpcConfig.rpcSupportsDebug);
+        const pool = await getMysqlPool(chainConfig.rpcConfig.rpcSupportsDebug, "blocks");
 
         // Each indexer worker must have a specific indexer name
         const indexerName = process.env['INDEXER_NAME'];

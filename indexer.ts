@@ -1,16 +1,14 @@
 import { BlocksDBHelper } from './blockFetcher/BlocksDBHelper.js';
-import Database from 'better-sqlite3';
 import { loadIndexingPlugins } from './lib/plugins.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getIntValue, initializeIndexingDB, setIntValue, } from './lib/dbHelper.js';
+import { getIntValue, setIntValue } from './lib/dbHelper.js';
 import { IndexingPlugin, TxBatch } from './lib/types.js';
 import fs from 'node:fs';
-import { getIndexerDbPath } from './lib/dbPaths.js';
-import { getCurrentChainConfig, getPluginDirs } from './config.js';
+import { getCurrentChainConfig, getMysqlPool, getPluginDirs } from './config.js';
 import mysql from 'mysql2/promise';
 
-const TXS_PER_LOOP = 10000;
+const TXS_PER_LOOP = 100000;
 
 export interface IndexerOptions {
     pool: mysql.Pool;
@@ -39,20 +37,29 @@ async function startIndexer(
         throw new Error(`Indexer ${name} has invalid version ${version}`);
     }
 
-    // Get the path for this specific indexer and version (old versions will be deleted)
-    const indexerDbPath = getIndexerDbPath(chainId, name, version, debugEnabled);
+    // Get the pool for this specific indexer with version checking
+    const pool = await getMysqlPool(debugEnabled, "plugin", name, version);
 
-    // Check if database exists
-    const dbExists = fs.existsSync(indexerDbPath);
+    // kv_int table is already created by getMysqlPool, no need to call initializeIndexingDB
 
-    // Open the database
-    const indexingDb = new Database(indexerDbPath, { readonly: false });
-    initializeIndexingDB({ db: indexingDb, isReadonly: false });
+    // Initialize indexer if needed
+    const isIndexerInitialized = await getIntValue(pool, `isIndexerInitialized_${name}`, 0) === 1;
 
-    if (!dbExists) {
+    if (!isIndexerInitialized) {
         // Initialize a new database for this indexer
-        console.log(`[${name} - ${chainConfig.chainName}] Initializing new database at ${indexerDbPath}`);
-        await indexer.initialize(indexingDb);
+        console.log(`[${name} - ${chainConfig.chainName}] Initializing new database`);
+        const initConnection = await pool.getConnection();
+        try {
+            await initConnection.beginTransaction();
+            await indexer.initialize(initConnection);
+            await setIntValue(initConnection, `isIndexerInitialized_${name}`, 1);
+            await initConnection.commit();
+        } catch (error) {
+            await initConnection.rollback();
+            throw error;
+        } finally {
+            await initConnection.release();
+        }
     }
 
     let hadSomethingToIndex = false;
@@ -61,8 +68,8 @@ async function startIndexer(
 
     // Main indexing loop
     while (true) {
-        // Get last indexed transaction from SQLite (outside of transaction)
-        const lastIndexedTx = getIntValue(indexingDb, `lastIndexedTx_${name}`, -1);
+        // Get last indexed transaction from db (outside of transaction)
+        const lastIndexedTx = await getIntValue(pool, `lastIndexedTx_${name}`, -1);
 
         // Fetch data from MySQL BlocksDBHelper (async operation)
         const getStart = performance.now();
@@ -86,16 +93,20 @@ async function startIndexer(
 
         consecutiveEmptyBatches = 0;
 
-        // Process the transactions in a SQLite transaction
-        const processTransactions = indexingDb.transaction(() => {
-            indexer.handleTxBatch(indexingDb, blocksDb, transactions);
+        const conn = await pool.getConnection();
+        try {
+            await conn.beginTransaction();
+            await indexer.handleTxBatch(conn, blocksDb, transactions);
+            await setIntValue(conn, `lastIndexedTx_${name}`, transactions.txs[transactions.txs.length - 1]!.txNum);
+            await conn.commit();
+        } catch (error) {
+            await conn.rollback();
+            throw error;
+        } finally {
+            await conn.release();
+        }
 
-            // Update last indexed transaction
-            const lastTx = transactions.txs[transactions.txs.length - 1]!;
-            setIntValue(indexingDb, `lastIndexedTx_${name}`, lastTx.txNum);
-        });
 
-        processTransactions();
         const indexingFinish = performance.now();
 
         // Get progress information (async operations outside transaction)
@@ -112,7 +123,7 @@ async function startIndexer(
     }
 
     console.log(`[${name} - ${chainConfig.chainName}] Indexer finished`);
-    indexingDb.close();
+    await pool.end();
 }
 
 export async function startAllIndexers(options: IndexerOptions): Promise<void> {
@@ -121,6 +132,7 @@ export async function startAllIndexers(options: IndexerOptions): Promise<void> {
         hasDebug: options.debugEnabled
     });
 
+    //FIXME: figure out how to actually land evmChainID here and compare
     const evmChainId = await blocksDb.getEvmChainId();
     // if (evmChainId !== parseInt(options.chainId)) {
     //     throw new Error(`BlocksDB chain ID mismatch: expected ${options.chainId}, got ${evmChainId}`);
@@ -141,8 +153,6 @@ export async function startAllIndexers(options: IndexerOptions): Promise<void> {
         );
         await Promise.all(promises);
     }
-
-    await blocksDb.close();
 }
 
 export async function startSingleIndexer(options: SingleIndexerOptions): Promise<void> {
@@ -151,6 +161,7 @@ export async function startSingleIndexer(options: SingleIndexerOptions): Promise
         hasDebug: options.debugEnabled
     });
 
+    //FIXME: figure out how to actually land evmChainID here and compare
     const evmChainId = await blocksDb.getEvmChainId();
     // if (evmChainId !== parseInt(options.chainId)) {
     //     throw new Error(`BlocksDB chain ID mismatch: expected ${options.chainId}, got ${evmChainId}`);

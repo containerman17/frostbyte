@@ -12,7 +12,7 @@ const module: IndexingPlugin = {
 
     // Process transactions
     handleTxBatch: (db, blocksDb, batch) => {
-        console.log(`Got batch ${batch.txs.length} txs`);
+        console.log(`Got batch ${batch.txs.length} txs from blocks ${Number(batch.txs[0]!.receipt.blockNumber)} to ${Number(batch.txs[batch.txs.length - 1]!.receipt.blockNumber)}`);
     }
 };
 

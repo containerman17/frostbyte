@@ -1,39 +1,25 @@
-import { Database } from "better-sqlite3";
+import mysql from 'mysql2/promise';
 
-export function initializeIndexingDB({ db, isReadonly }: { db: Database, isReadonly: boolean }): void {
-    if (isReadonly) {
-        // Readonly: optimize for fast reads
-        db.pragma('mmap_size = 53687091200'); // 50GB - map entire database
-        db.pragma('cache_size = -32000'); // 32MB cache
-        db.pragma('synchronous = OFF'); // Fastest, safe for readonly
-        db.pragma('temp_store = MEMORY');
-        // Don't set journal_mode - it's already set by writer and requires write access
-    } else {
-        // Writer: optimize for fast writes while preventing corruption
-        db.pragma('mmap_size = 53687091200'); // 50GB - map entire database
-        db.pragma('cache_size = -64000'); // 64MB cache
-        db.pragma('synchronous = NORMAL'); // Fast but prevents corruption
-        db.pragma('journal_mode = WAL'); // Only writer sets this
-        db.pragma('temp_store = MEMORY');
-        // db.pragma('locking_mode = EXCLUSIVE'); // Single writer optimization
-
-        // Create kv_int table for integer key-value storage
-        db.exec(`
+export async function initializeIndexingDB(db: mysql.Connection): Promise<void> {
+    await db.execute(`
             CREATE TABLE IF NOT EXISTS kv_int (
-                key   TEXT PRIMARY KEY,
-                value INTEGER NOT NULL
-            ) WITHOUT ROWID;
+                \`key\`   VARCHAR(255) PRIMARY KEY,
+                \`value\` BIGINT NOT NULL
+            )
         `);
-    }
 }
 
-export function getIntValue(db: Database, key: string, defaultValue: number): number {
-    const stmt = db.prepare('SELECT value FROM kv_int WHERE key = ?');
-    const result = stmt.get(key) as { value: number } | undefined;
-    return result?.value ?? defaultValue;
+export async function getIntValue(db: mysql.Connection, key: string, defaultValue: number): Promise<number> {
+    const [rows] = await db.execute<mysql.RowDataPacket[]>(
+        'SELECT `value` FROM kv_int WHERE `key` = ?',
+        [key]
+    );
+    return rows[0]?.['value'] ?? defaultValue;
 }
 
-export function setIntValue(db: Database, key: string, value: number): void {
-    const stmt = db.prepare('INSERT OR REPLACE INTO kv_int (key, value) VALUES (?, ?)');
-    stmt.run(key, value);
+export async function setIntValue(db: mysql.Connection, key: string, value: number): Promise<void> {
+    await db.execute(
+        'INSERT INTO kv_int (`key`, `value`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)',
+        [key, value]
+    );
 }

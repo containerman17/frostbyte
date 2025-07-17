@@ -1,15 +1,15 @@
-import { BlocksDBHelper } from "../blockFetcher/BlocksDBHelper.js";
+import { BlocksDBHelper } from "../blockFetcher/BlocksDBHelper";
 import { FastifyInstance } from "fastify";
-import SQLite from "better-sqlite3";
 import {
     RpcTraceResult,
     StoredTx
 } from "../blockFetcher/evmTypes";
 import { ChainConfig } from "../config";
+import mysql from "mysql2/promise";
 
 export interface RegisterRoutesContext {
-    blocksDbFactory: (evmChainId: number) => Promise<BlocksDBHelper>;
-    indexerDbFactory: (evmChainId: number, indexerName: string) => SQLite.Database;
+    getBlocksDbHelper: (evmChainId: number) => Promise<BlocksDBHelper>;
+    getIndexerDbConnection: (evmChainId: number, indexerName: string) => Promise<mysql.Connection>;
     getChainConfig: (evmChainId: number) => ChainConfig;
     getAllChainConfigs: () => ChainConfig[];
 }
@@ -26,10 +26,10 @@ export interface IndexingPlugin {
     usesTraces: boolean;   // if true, traces are included in the batch, that's 3x slower
 
     /** Called once. Create tables here. */
-    initialize: (db: SQLite.Database) => void | Promise<void>;
+    initialize: (db: mysql.Connection) => void | Promise<void>;
 
     handleTxBatch: (
-        db: SQLite.Database,
+        db: mysql.Connection,
         blocksDb: BlocksDBHelper,
         batch: TxBatch,
     ) => void | Promise<void>;
