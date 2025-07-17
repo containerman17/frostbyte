@@ -127,3 +127,7 @@ export type StoredTx = {
     receipt: RpcTxReceipt;
     blockTs: number;
 }
+
+// Special topic for contract creation detection
+// This is not a real event topic, but a synthetic marker for indexing
+export const CONTRACT_CREATION_TOPIC = '0xcccccccccc';

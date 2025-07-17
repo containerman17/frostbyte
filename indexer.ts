@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import { getCurrentChainConfig, getMysqlPool, getPluginDirs } from './config.js';
 import mysql from 'mysql2/promise';
 
-const TXS_PER_LOOP = 100000;
+const TXS_PER_LOOP = 50000;
 
 export interface IndexerOptions {
     pool: mysql.Pool;
@@ -32,6 +32,7 @@ async function startIndexer(
     console.log(`[${indexer.name} - ${chainConfig.chainName}] Starting indexer v${indexer.version}`);
     const name = indexer.name;
     const version = indexer.version;
+    const filterEvents: string[] | undefined = indexer.filterEvents;
 
     if (version < 0) {
         throw new Error(`Indexer ${name} has invalid version ${version}`);
@@ -73,7 +74,7 @@ async function startIndexer(
 
         // Fetch data from MySQL BlocksDBHelper (async operation)
         const getStart = performance.now();
-        const transactions = await blocksDb.getTxBatch(lastIndexedTx, TXS_PER_LOOP, indexer.usesTraces);
+        const transactions = await blocksDb.getTxBatch(lastIndexedTx, TXS_PER_LOOP, indexer.usesTraces, filterEvents);
         const indexingStart = performance.now();
         hadSomethingToIndex = transactions.txs.length > 0;
 

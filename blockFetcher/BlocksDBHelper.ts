@@ -1,5 +1,5 @@
 import mysql from 'mysql2/promise';
-import { RpcBlock, RpcBlockTransaction, RpcTxReceipt, RpcTraceResult, StoredTx } from './evmTypes.js';
+import { RpcBlock, RpcBlockTransaction, RpcTxReceipt, RpcTraceResult, StoredTx, CONTRACT_CREATION_TOPIC, RpcTraceCall } from './evmTypes.js';
 import { StoredBlock } from './BatchRpc.js';
 
 export class BlocksDBHelper {
@@ -154,12 +154,13 @@ export class BlocksDBHelper {
         // Store block data as JSON (RocksDB handles compression)
         const blockData = JSON.stringify(blockWithoutTxs);
 
-        // Extract block hash (remove '0x' prefix)
+        // Extract block hash (remove '0x' prefix) and take first 5 bytes
         const blockHash = storedBlock.block.hash.slice(2);
+        const blockHashPrefix = Buffer.from(blockHash, 'hex').slice(0, 5);
 
         await connection.execute(
             'INSERT INTO blocks (number, hash, data) VALUES (?, ?, ?)',
-            [blockNumber, Buffer.from(blockHash, 'hex'), blockData]
+            [blockNumber, blockHashPrefix, blockData]
         );
 
         // Store transactions with their receipts and traces
@@ -168,19 +169,16 @@ export class BlocksDBHelper {
             const receipt = storedBlock.receipts[tx.hash];
             if (!receipt) throw new Error(`Receipt not found for tx ${tx.hash}`);
 
-            // Calculate tx_num using the formula: (block_num << 16) | tx_idx
-            const tx_num = Number((BigInt(blockNumber) << 16n) | BigInt(i));
-
             // Prepare transaction data
             const txData: StoredTx = {
-                txNum: tx_num,
+                txNum: 0, // Will be set by auto-increment
                 tx: tx,
                 receipt: receipt,
                 blockTs: Number(storedBlock.block.timestamp)
             };
 
             const txDataJson = JSON.stringify(txData);
-            const txHash = Buffer.from(tx.hash.slice(2), 'hex');
+            const txHashPrefix = Buffer.from(tx.hash.slice(2), 'hex').slice(0, 5);
 
             // Find the corresponding trace for this transaction
             let traceDataJson: string | null = null;
@@ -196,10 +194,70 @@ export class BlocksDBHelper {
                 traceDataJson = JSON.stringify(trace);
             }
 
-            await connection.execute(
-                'INSERT INTO txs (tx_num, hash, data, traces) VALUES (?, ?, ?, ?)',
-                [tx_num, txHash, txDataJson, traceDataJson]
+            const [insertResult] = await connection.execute<mysql.ResultSetHeader>(
+                'INSERT INTO txs (hash, block_num, data, traces) VALUES (?, ?, ?, ?)',
+                [txHashPrefix, blockNumber, txDataJson, traceDataJson]
             );
+
+            const txNum = insertResult.insertId;
+
+            // Update the stored transaction data with the actual tx_num
+            txData.txNum = txNum;
+            const updatedTxDataJson = JSON.stringify(txData);
+
+            await connection.execute(
+                'UPDATE txs SET data = ? WHERE tx_num = ?',
+                [updatedTxDataJson, txNum]
+            );
+
+            // Check if this transaction created a contract
+            let isContractCreation = false;
+
+            // Method 1: Check if tx.to is null (direct contract creation)
+            if (!tx.to) {
+                isContractCreation = true;
+            }
+
+            // Method 2: Check traces for internal contract creations (if hasDebug is enabled)
+            if (!isContractCreation && this.hasDebug && storedBlock.traces) {
+                const trace = storedBlock.traces.find(t => t.txHash === tx.hash);
+                if (trace) {
+                    // Recursively check for CREATE operations in the trace
+                    const hasCreate = this.hasCreateOperation(trace.result);
+                    if (hasCreate) {
+                        isContractCreation = true;
+                    }
+                }
+            }
+
+            // If contract creation detected, add the special topic
+            if (isContractCreation) {
+                const contractCreationTopicPrefix = Buffer.from(CONTRACT_CREATION_TOPIC.slice(2), 'hex').slice(0, 5);
+                await connection.execute(
+                    'INSERT INTO tx_topics (tx_num, topic_hash) VALUES (?, ?)',
+                    [txNum, contractCreationTopicPrefix]
+                );
+            }
+
+            // Index event topics
+            const processedTopics = new Set<string>();
+            for (const log of receipt.logs) {
+                if (log.topics.length > 0 && log.topics[0]) {
+                    const topic = log.topics[0];
+
+                    // Only process each unique topic once per transaction
+                    if (processedTopics.has(topic)) continue;
+                    processedTopics.add(topic);
+
+                    const topicHashPrefix = Buffer.from(topic.slice(2), 'hex').slice(0, 5);
+
+                    // Insert tx_topics entry
+                    await connection.execute(
+                        'INSERT INTO tx_topics (tx_num, topic_hash) VALUES (?, ?)',
+                        [txNum, topicHashPrefix]
+                    );
+                }
+            }
         }
     }
 
@@ -213,17 +271,16 @@ export class BlocksDBHelper {
     private async initSchema(): Promise<void> {
         const queries = [
             `CREATE TABLE IF NOT EXISTS blocks (
-                number BIGINT PRIMARY KEY,
-                hash BINARY(32) NOT NULL UNIQUE,
+                number INT UNSIGNED PRIMARY KEY,
+                hash BINARY(5) NOT NULL,
                 data LONGTEXT NOT NULL,
                 INDEX idx_hash (hash)
             ) ENGINE=ROCKSDB`,
 
             `CREATE TABLE IF NOT EXISTS txs (
-                tx_num BIGINT PRIMARY KEY,
-                hash BINARY(32) NOT NULL UNIQUE,
-                block_num BIGINT GENERATED ALWAYS AS (tx_num >> 16) STORED,
-                tx_idx INT GENERATED ALWAYS AS (tx_num & 0xFFFF) STORED,
+                tx_num INT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+                hash BINARY(5) NOT NULL,
+                block_num INT UNSIGNED NOT NULL,
                 data LONGTEXT NOT NULL,
                 traces LONGTEXT,
                 INDEX idx_hash (hash),
@@ -238,6 +295,12 @@ export class BlocksDBHelper {
             `CREATE TABLE IF NOT EXISTS kv_string (
                 \`key\` VARCHAR(255) PRIMARY KEY,
                 value TEXT NOT NULL
+            ) ENGINE=ROCKSDB`,
+
+            `CREATE TABLE IF NOT EXISTS tx_topics (
+                tx_num INT UNSIGNED NOT NULL,
+                topic_hash BINARY(5) NOT NULL,
+                INDEX idx_topic_hash (topic_hash)
             ) ENGINE=ROCKSDB`
         ];
 
@@ -268,39 +331,95 @@ export class BlocksDBHelper {
         );
     }
 
-    async getTxBatch(greaterThanTxNum: number, limit: number, includeTraces: boolean): Promise<{ txs: StoredTx[], traces: RpcTraceResult[] | undefined }> {
+    async getTxBatch(greaterThanTxNum: number, limit: number, includeTraces: boolean, filterEvents: string[] | undefined): Promise<{ txs: StoredTx[], traces: RpcTraceResult[] | undefined }> {
         // Ensure safe values to prevent SQL injection
         const txNumParam = Math.max(0, greaterThanTxNum);
         const limitParam = Math.min(Math.max(1, limit), 100000);
 
-        // Use direct query to avoid prepared statement issues with BIGINT columns
-        const query = includeTraces && this.hasDebug
-            ? `SELECT tx_num, data, traces FROM txs WHERE tx_num > ${txNumParam} ORDER BY tx_num ASC LIMIT ${limitParam}`
-            : `SELECT tx_num, data FROM txs WHERE tx_num > ${txNumParam} ORDER BY tx_num ASC LIMIT ${limitParam}`;
+        let query: string;
 
-        const [rows] = await this.pool.query<mysql.RowDataPacket[]>(query);
+        if (filterEvents && filterEvents.length > 0) {
+            // Use the index for efficient filtering
+            const topicHashPrefixes = filterEvents.map(topic => Buffer.from(topic.slice(2), 'hex').slice(0, 5));
 
-        const txs: StoredTx[] = [];
-        const traces: RpcTraceResult[] = [];
+            const placeholders = topicHashPrefixes.map(() => '?').join(',');
 
-        for (const row of rows) {
-            const storedTx = JSON.parse(row['data']) as StoredTx;
-            txs.push(storedTx);
+            // Query using the index directly without glossary lookup
+            query = includeTraces && this.hasDebug
+                ? `SELECT DISTINCT t.tx_num, t.data, t.traces 
+                   FROM txs t 
+                   INNER JOIN tx_topics tt ON t.tx_num = tt.tx_num 
+                   WHERE tt.topic_hash IN (${placeholders}) 
+                   AND t.tx_num > ${txNumParam} 
+                   ORDER BY t.tx_num ASC 
+                   LIMIT ${limitParam}`
+                : `SELECT DISTINCT t.tx_num, t.data 
+                   FROM txs t 
+                   INNER JOIN tx_topics tt ON t.tx_num = tt.tx_num 
+                   WHERE tt.topic_hash IN (${placeholders}) 
+                   AND t.tx_num > ${txNumParam} 
+                   ORDER BY t.tx_num ASC 
+                   LIMIT ${limitParam}`;
 
-            if (this.hasDebug && includeTraces && row['traces']) {
-                const trace = JSON.parse(row['traces']) as RpcTraceResult;
-                traces.push(trace);
+            const mysqlGetStarted = performance.now();
+            const [rows] = await this.pool.query<mysql.RowDataPacket[]>(query, topicHashPrefixes);
+            const mysqlGetEnded = performance.now();
+            if ((mysqlGetEnded - mysqlGetStarted) > 100) {
+                console.log(`MySQL indexed query took ${mysqlGetEnded - mysqlGetStarted}ms`);
             }
-        }
 
-        return {
-            txs,
-            traces: this.hasDebug && includeTraces ? traces : undefined
-        };
+            const txs: StoredTx[] = [];
+            const traces: RpcTraceResult[] = [];
+
+            for (const row of rows) {
+                const storedTx = JSON.parse(row['data']) as StoredTx;
+                txs.push(storedTx);
+
+                if (this.hasDebug && includeTraces && row['traces']) {
+                    const trace = JSON.parse(row['traces']) as RpcTraceResult;
+                    traces.push(trace);
+                }
+            }
+
+            return {
+                txs,
+                traces: this.hasDebug && includeTraces ? traces : undefined
+            };
+        } else {
+            // No filtering, use original query
+            query = includeTraces && this.hasDebug
+                ? `SELECT tx_num, data, traces FROM txs WHERE tx_num > ${txNumParam} ORDER BY tx_num ASC LIMIT ${limitParam}`
+                : `SELECT tx_num, data FROM txs WHERE tx_num > ${txNumParam} ORDER BY tx_num ASC LIMIT ${limitParam}`;
+
+            const mysqlGetStarted = performance.now();
+            const [rows] = await this.pool.query<mysql.RowDataPacket[]>(query);
+            const mysqlGetEnded = performance.now();
+            if (mysqlGetEnded - mysqlGetStarted > 100) {
+                console.log(`MySQL query took ${mysqlGetEnded - mysqlGetStarted}ms`);
+            }
+
+            const txs: StoredTx[] = [];
+            const traces: RpcTraceResult[] = [];
+
+            for (const row of rows) {
+                const storedTx = JSON.parse(row['data']) as StoredTx;
+                txs.push(storedTx);
+
+                if (this.hasDebug && includeTraces && row['traces']) {
+                    const trace = JSON.parse(row['traces']) as RpcTraceResult;
+                    traces.push(trace);
+                }
+            }
+
+            return {
+                txs,
+                traces: this.hasDebug && includeTraces ? traces : undefined
+            };
+        }
     }
 
     async slow_getBlockWithTransactions(blockIdentifier: number | string): Promise<RpcBlock | null> {
-        let blockNumber: number;
+        let blockNumber: number = -1;
         let blockRow: mysql.RowDataPacket | undefined;
 
         if (typeof blockIdentifier === 'number') {
@@ -317,17 +436,24 @@ export class BlocksDBHelper {
             if (hashStr.length !== 64) {
                 throw new Error(`Invalid block hash length: expected 64 hex chars, got ${hashStr.length}`);
             }
-            const hashBuffer = Buffer.from(hashStr, 'hex');
+            const hashPrefix = Buffer.from(hashStr, 'hex').slice(0, 5);
 
             const [rows] = await this.pool.execute<mysql.RowDataPacket[]>(
                 'SELECT number, hash, data FROM blocks WHERE hash = ?',
-                [hashBuffer]
+                [hashPrefix]
             );
-            blockRow = rows[0];
 
-            if (blockRow) {
-                blockNumber = blockRow['number'];
-            } else {
+            // Handle potential collisions by checking the full hash in the data
+            for (const row of rows) {
+                const storedData = JSON.parse(row['data']) as Omit<RpcBlock, 'transactions'>;
+                if (storedData.hash.toLowerCase() === ('0x' + hashStr).toLowerCase()) {
+                    blockRow = row;
+                    blockNumber = row['number'];
+                    break;
+                }
+            }
+
+            if (!blockRow) {
                 return null;
             }
         }
@@ -339,13 +465,10 @@ export class BlocksDBHelper {
         // Parse the block data (without transactions)
         const storedBlock = JSON.parse(blockRow['data']) as Omit<RpcBlock, 'transactions'>;
 
-        // Fetch all transactions for this block
-        const minTxNum = Number(BigInt(blockNumber) << 16n);
-        const maxTxNum = Number((BigInt(blockNumber) << 16n) | 0xFFFFn);
-
+        // Fetch all transactions for this block ordered by tx_idx
         const [txRows] = await this.pool.execute<mysql.RowDataPacket[]>(
-            'SELECT tx_num, data FROM txs WHERE tx_num >= ? AND tx_num <= ? ORDER BY tx_num ASC',
-            [minTxNum, maxTxNum]
+            'SELECT data FROM txs WHERE block_num = ? ORDER BY tx_num ASC',
+            [blockNumber]
         );
 
         // Reconstruct the transactions array
@@ -366,21 +489,27 @@ export class BlocksDBHelper {
     }
 
     async getTxReceipt(txHash: string): Promise<RpcTxReceipt | null> {
-        const hashBuf = Buffer.from(txHash.replace(/^0x/, ''), 'hex');
+        const hashStr = txHash.replace(/^0x/, '');
+        const hashPrefix = Buffer.from(hashStr, 'hex').slice(0, 5);
         const [rows] = await this.pool.execute<mysql.RowDataPacket[]>(
             'SELECT data FROM txs WHERE hash = ?',
-            [hashBuf]
+            [hashPrefix]
         );
 
-        if (rows.length === 0) return null;
+        // Handle potential collisions by checking the full hash in the data
+        for (const row of rows) {
+            const storedTx = JSON.parse(row['data']) as StoredTx;
+            if (storedTx.tx.hash.toLowerCase() === ('0x' + hashStr).toLowerCase()) {
+                return storedTx.receipt;
+            }
+        }
 
-        const storedTx = JSON.parse(rows[0]!['data']) as StoredTx;
-        return storedTx.receipt;
+        return null;
     }
 
     async slow_getBlockTraces(blockNumber: number): Promise<RpcTraceResult[]> {
         const [rows] = await this.pool.execute<mysql.RowDataPacket[]>(
-            'SELECT traces FROM txs WHERE block_num = ? ORDER BY tx_idx ASC',
+            'SELECT traces FROM txs WHERE block_num = ? ORDER BY tx_num ASC',
             [blockNumber]
         );
 
@@ -399,5 +528,26 @@ export class BlocksDBHelper {
      */
     getDatabase(): mysql.Pool {
         return this.pool;
+    }
+
+    /**
+     * Recursively checks if a trace contains any CREATE operations
+     */
+    private hasCreateOperation(trace: RpcTraceCall): boolean {
+        // Check if this trace is a CREATE operation
+        if (trace.type === 'CREATE' || trace.type === 'CREATE2' || trace.type === 'CREATE3') {
+            return true;
+        }
+
+        // Recursively check child calls
+        if (trace.calls && Array.isArray(trace.calls)) {
+            for (const call of trace.calls) {
+                if (this.hasCreateOperation(call)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 }

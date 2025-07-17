@@ -24,6 +24,7 @@ export interface IndexingPlugin {
     name: string;          // unique slug, no whitespaces only a-z0-9-_
     version: number;       // bump wipes the database
     usesTraces: boolean;   // if true, traces are included in the batch, that's 3x slower
+    filterEvents?: string[]; // if provided, only transactions with these topics will be processed
 
     /** Called once. Create tables here. */
     initialize: (db: mysql.Connection) => void | Promise<void>;
