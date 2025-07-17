@@ -45,18 +45,11 @@ export class BlocksDBHelper {
     }
 
     async getEvmChainId(): Promise<number> {
-        const [rows] = await this.pool.execute<mysql.RowDataPacket[]>(
-            'SELECT value FROM kv_int WHERE `key` = ?',
-            ['evm_chain_id']
-        );
-        return rows[0]?.['value'] ?? -1;
+        return await this.getIntValue('evm_chain_id', -1);
     }
 
     async setEvmChainId(chainId: number): Promise<void> {
-        await this.pool.execute(
-            'INSERT INTO kv_int (`key`, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)',
-            ['evm_chain_id', chainId]
-        );
+        await this.setIntValue('evm_chain_id', chainId);
     }
 
     async getLastStoredBlockNumber(): Promise<number> {
@@ -67,11 +60,7 @@ export class BlocksDBHelper {
     }
 
     async getTxCount(): Promise<number> {
-        const [rows] = await this.pool.execute<mysql.RowDataPacket[]>(
-            'SELECT value FROM kv_int WHERE `key` = ?',
-            ['tx_count']
-        );
-        return rows[0]?.['value'] ?? 0;
+        return await this.getIntValue('tx_count', 0);
     }
 
     async storeBlocks(batch: StoredBlock[]): Promise<void> {
@@ -116,18 +105,11 @@ export class BlocksDBHelper {
 
     async setBlockchainLatestBlockNum(blockNumber: number): Promise<void> {
         if (this.isReadonly) throw new Error('BlocksDBHelper is readonly');
-        await this.pool.execute(
-            'INSERT INTO kv_int (`key`, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)',
-            ['blockchain_latest_block', blockNumber]
-        );
+        await this.setIntValue('blockchain_latest_block', blockNumber);
     }
 
     async getBlockchainLatestBlockNum(): Promise<number> {
-        const [rows] = await this.pool.execute<mysql.RowDataPacket[]>(
-            'SELECT value FROM kv_int WHERE `key` = ?',
-            ['blockchain_latest_block']
-        );
-        return rows[0]?.['value'] ?? -1;
+        return await this.getIntValue('blockchain_latest_block', -1);
     }
 
     async close(): Promise<void> {
@@ -266,10 +248,7 @@ export class BlocksDBHelper {
     }
 
     private async setTxCountWithConnection(count: number, connection: mysql.PoolConnection): Promise<void> {
-        await connection.execute(
-            'INSERT INTO kv_int (`key`, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)',
-            ['tx_count', count]
-        );
+        await this.setIntValueWithConnection('tx_count', count, connection);
     }
 
     private async initSchema(): Promise<void> {
@@ -321,18 +300,11 @@ export class BlocksDBHelper {
     }
 
     async getHasDebug(): Promise<number> {
-        const [rows] = await this.pool.execute<mysql.RowDataPacket[]>(
-            'SELECT value FROM kv_int WHERE `key` = ?',
-            ['hasDebug']
-        );
-        return rows[0]?.['value'] ?? -1;
+        return await this.getIntValue('hasDebug', -1);
     }
 
     async setHasDebug(hasDebug: boolean): Promise<void> {
-        await this.pool.execute(
-            'INSERT INTO kv_int (`key`, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)',
-            ['hasDebug', hasDebug ? 1 : 0]
-        );
+        await this.setIntValue('hasDebug', hasDebug ? 1 : 0);
     }
 
     async getTxBatch(greaterThanTxNum: number, limit: number, includeTraces: boolean, filterEvents: string[] | undefined): Promise<{ txs: StoredTx[], traces: RpcTraceResult[] | undefined, maxTxNum: number }> {
@@ -562,5 +534,36 @@ export class BlocksDBHelper {
         }
 
         return false;
+    }
+
+    /**
+     * Get a value from kv_int table with a default fallback
+     */
+    private async getIntValue(key: string, defaultValue: number): Promise<number> {
+        const [rows] = await this.pool.execute<mysql.RowDataPacket[]>(
+            'SELECT value FROM kv_int WHERE `key` = ?',
+            [key]
+        );
+        return rows[0]?.['value'] ?? defaultValue;
+    }
+
+    /**
+     * Set a value in kv_int table
+     */
+    private async setIntValue(key: string, value: number): Promise<void> {
+        await this.pool.execute(
+            'INSERT INTO kv_int (`key`, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)',
+            [key, value]
+        );
+    }
+
+    /**
+     * Set a value in kv_int table using an existing connection
+     */
+    private async setIntValueWithConnection(key: string, value: number, connection: mysql.PoolConnection): Promise<void> {
+        await connection.execute(
+            'INSERT INTO kv_int (`key`, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)',
+            [key, value]
+        );
     }
 }
