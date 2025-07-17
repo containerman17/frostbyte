@@ -1,5 +1,5 @@
 import mysql from 'mysql2/promise';
-import { RpcBlock, RpcBlockTransaction, RpcTxReceipt, RpcTraceResult, StoredTx, CONTRACT_CREATION_TOPIC, RpcTraceCall } from './evmTypes.js';
+import { RpcBlock, RpcBlockTransaction, RpcTxReceipt, RpcTraceResult, StoredTx, StoredRpcTxReceipt, CONTRACT_CREATION_TOPIC, RpcTraceCall } from './evmTypes.js';
 import { StoredBlock } from './BatchRpc.js';
 
 export class BlocksDBHelper {
@@ -146,10 +146,11 @@ export class BlocksDBHelper {
         const blockNumber = Number(storedBlock.block.number);
 
         // Create a block without transactions for storage
-        const blockWithoutTxs: Omit<RpcBlock, 'transactions'> = {
+        const blockWithoutTxs: Omit<RpcBlock, 'transactions' | 'logsBloom'> = {
             ...storedBlock.block,
         };
         delete (blockWithoutTxs as any).transactions;
+        delete (blockWithoutTxs as any).logsBloom;
 
         // Store block data as JSON (RocksDB handles compression)
         const blockData = JSON.stringify(blockWithoutTxs);
@@ -170,10 +171,13 @@ export class BlocksDBHelper {
             if (!receipt) throw new Error(`Receipt not found for tx ${tx.hash}`);
 
             // Prepare transaction data
+            const receiptWithoutBloom: StoredRpcTxReceipt = { ...receipt };
+            delete (receiptWithoutBloom as any).logsBloom;
+
             const txData: StoredTx = {
                 txNum: 0, // Will be set by auto-increment
                 tx: tx,
-                receipt: receipt,
+                receipt: receiptWithoutBloom,
                 blockTs: Number(storedBlock.block.timestamp)
             };
 
@@ -488,7 +492,7 @@ export class BlocksDBHelper {
         return fullBlock;
     }
 
-    async getTxReceipt(txHash: string): Promise<RpcTxReceipt | null> {
+    async getTxReceipt(txHash: string): Promise<StoredRpcTxReceipt | null> {
         const hashStr = txHash.replace(/^0x/, '');
         const hashPrefix = Buffer.from(hashStr, 'hex').slice(0, 5);
         const [rows] = await this.pool.execute<mysql.RowDataPacket[]>(

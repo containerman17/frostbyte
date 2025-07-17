@@ -120,11 +120,12 @@ export interface RpcTraceResponse {
     result: RpcTraceResult[];
 }
 
-export type StoredBlock = Omit<RpcBlock, 'transactions'>
+export type StoredRpcTxReceipt = Omit<RpcTxReceipt, 'logsBloom'> & { logsBloom?: string }
+export type StoredBlock = Omit<RpcBlock, 'transactions' | 'logsBloom'> & { logsBloom?: string }
 export type StoredTx = {
     txNum: number;
     tx: RpcBlockTransaction;
-    receipt: RpcTxReceipt;
+    receipt: StoredRpcTxReceipt;
     blockTs: number;
 }
 
