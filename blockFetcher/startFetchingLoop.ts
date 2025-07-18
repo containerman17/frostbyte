@@ -1,12 +1,12 @@
 import { BatchRpc } from "./BatchRpc.js";
-import { BlockDB } from "./BlockDB.js";
+import { BlocksDBHelper } from "./BlocksDBHelper.js"
 
 const NO_BLOCKS_PAUSE_TIME = 3 * 1000;
 const ERROR_PAUSE_TIME = 10 * 1000;
 
-export async function startFetchingLoop(blockDB: BlockDB, batchRpc: BatchRpc, blocksPerBatch: number, chainName: string) {
-    let latestRemoteBlock = blockDB.getBlockchainLatestBlockNum()
-    const needsChainId = blockDB.getEvmChainId() === -1;
+export async function startFetchingLoop(blockDB: BlocksDBHelper, batchRpc: BatchRpc, blocksPerBatch: number, chainName: string) {
+    let latestRemoteBlock = await blockDB.getBlockchainLatestBlockNum()
+    const needsChainId = (await blockDB.getEvmChainId()) === -1;
 
     while (true) {//Kinda wait for readiness
         try {
@@ -27,22 +27,14 @@ export async function startFetchingLoop(blockDB: BlockDB, batchRpc: BatchRpc, bl
         }
     }
 
-    let lastStoredBlock = blockDB.getLastStoredBlockNumber();
+    let lastStoredBlock = await blockDB.getLastStoredBlockNumber();
 
     while (true) {
         // Check if we've caught up to the latest remote block
         if (lastStoredBlock >= latestRemoteBlock) {
             const newLatestRemoteBlock = await batchRpc.getCurrentBlockNumber();
             if (newLatestRemoteBlock === latestRemoteBlock) {
-                console.log(`[${chainName}] No new blocks, pause before checking again ${NO_BLOCKS_PAUSE_TIME / 1000}s`);
-
-                // Step 3: Perform periodic maintenance during idle gaps
-                try {
-                    blockDB.performPeriodicMaintenance();
-                } catch (error) {
-                    console.error(`[${chainName}] Periodic maintenance failed:`, error);
-                    // Continue operation - maintenance failure shouldn't stop fetching
-                }
+                console.log(`[${chainName}] No new blocks, pause before checking again ${NO_BLOCKS_PAUSE_TIME / 1000}s`)
 
                 await new Promise(resolve => setTimeout(resolve, NO_BLOCKS_PAUSE_TIME));
                 continue;
@@ -64,16 +56,8 @@ export async function startFetchingLoop(blockDB: BlockDB, batchRpc: BatchRpc, bl
             const start = performance.now();
             const blockNumbers = Array.from({ length: endBlock - startBlock + 1 }, (_, i) => startBlock + i);
             const blocks = await batchRpc.getBlocksWithReceipts(blockNumbers);
-            blockDB.storeBlocks(blocks);
+            await blockDB.storeBlocks(blocks);
             lastStoredBlock = endBlock;
-
-            // Check if we just caught up and trigger maintenance if so
-            try {
-                blockDB.checkAndUpdateCatchUpStatus();
-            } catch (error) {
-                console.error(`[${chainName}] Failed to check/update catch-up status:`, error);
-                // Continue operation - status update failure shouldn't stop fetching
-            }
 
             const end = performance.now();
             const blocksLeft = latestRemoteBlock - endBlock;
@@ -82,6 +66,9 @@ export async function startFetchingLoop(blockDB: BlockDB, batchRpc: BatchRpc, bl
             console.log(`[${chainName}] Fetched ${blocks.length} blocks in ${Math.round(end - start)}ms, that's ~${Math.round(blocksPerSecond)} blocks/s, ${blocksLeft.toLocaleString()} blocks left, ~${formatSeconds(secondsLeft)} left`);
         } catch (error) {
             console.error(`[${chainName}] Error fetching/storing blocks ${startBlock}-${endBlock}:`, error);
+            // Re-fetch the actual last stored block from database after error
+            lastStoredBlock = await blockDB.getLastStoredBlockNumber();
+            console.log(`[${chainName}] Reset lastStoredBlock to ${lastStoredBlock} after error`);
             await new Promise(resolve => setTimeout(resolve, ERROR_PAUSE_TIME));
         }
     }

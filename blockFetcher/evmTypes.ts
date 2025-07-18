@@ -120,10 +120,15 @@ export interface RpcTraceResponse {
     result: RpcTraceResult[];
 }
 
-export type StoredBlock = Omit<RpcBlock, 'transactions'>
+export type StoredRpcTxReceipt = Omit<RpcTxReceipt, 'logsBloom'> & { logsBloom?: string }
+export type StoredBlock = Omit<RpcBlock, 'transactions' | 'logsBloom'> & { logsBloom?: string }
 export type StoredTx = {
     txNum: number;
     tx: RpcBlockTransaction;
-    receipt: RpcTxReceipt;
+    receipt: StoredRpcTxReceipt;
     blockTs: number;
 }
+
+// Special topic for contract creation detection
+// This is not a real event topic, but a synthetic marker for indexing
+export const CONTRACT_CREATION_TOPIC = '0xcccccccccc';

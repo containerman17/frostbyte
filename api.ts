@@ -1,17 +1,14 @@
-import { BlockDB } from './blockFetcher/BlockDB.js';
+import { BlocksDBHelper } from './blockFetcher/BlocksDBHelper';
 import Fastify, { FastifyInstance } from 'fastify';
-import Sqlite3 from 'better-sqlite3';
-import { initializeIndexingDB } from './lib/dbHelper.js';
 import { loadApiPlugins, loadIndexingPlugins } from './lib/plugins.js';
-import { getBlocksDbPath, getIndexerDbPath } from './lib/dbPaths.js';
-import { ChainConfig } from './config.js';
-import Database from 'better-sqlite3';
+import { getMysqlPool, ChainConfig } from './config.js';
 import { getPluginDirs } from './config.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import chainsApiPlugin from './standardPlugins/chainsApi.js';
 import rpcApiPlugin from './standardPlugins/rpcApi.js';
 import { ASSETS_DIR } from './config.js';
+import mysql from 'mysql2/promise';
 
 const docsPage = `
 <!doctype html>
@@ -114,58 +111,54 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
         });
     }
 
-    const blocksDbCache = new Map<number, BlockDB>();
-    function getBlocksDb(evmChainId: number): BlockDB {
-        if (blocksDbCache.has(evmChainId)) {
-            return blocksDbCache.get(evmChainId)!;
+    const chainConfigCache = new Map<number, ChainConfig>();
+    const getChainConfig = (evmChainId: number): ChainConfig => {
+        if (chainConfigCache.has(evmChainId)) {
+            return chainConfigCache.get(evmChainId)!;
         }
         const chainConfig = chainConfigs.find(c => c.evmChainId === evmChainId);
         if (!chainConfig) {
             throw new Error(`Chain config not found for evmChainId: ${evmChainId}`);
         }
-        const blocksDb = new BlockDB({ path: getBlocksDbPath(chainConfig.blockchainId, chainConfig.rpcConfig.rpcSupportsDebug), isReadonly: true, hasDebug: chainConfig.rpcConfig.rpcSupportsDebug });
+        chainConfigCache.set(evmChainId, chainConfig);
+        return chainConfig;
+    }
+
+    const blocksDbCache = new Map<number, BlocksDBHelper>();
+    const getBlocksDbHelper = async (evmChainId: number): Promise<BlocksDBHelper> => {
+        if (blocksDbCache.has(evmChainId)) {
+            return blocksDbCache.get(evmChainId)!;
+        }
+        const chainConfig = getChainConfig(evmChainId);
+        const pool = await getMysqlPool({
+            debugEnabled: chainConfig.rpcConfig.rpcSupportsDebug,
+            type: "blocks",
+            chainId: chainConfig.blockchainId,
+        });
+        const blocksDb = await BlocksDBHelper.createFromPool(pool, {
+            isReadonly: true,
+            hasDebug: chainConfig.rpcConfig.rpcSupportsDebug
+        });
         blocksDbCache.set(evmChainId, blocksDb);
         return blocksDb;
     }
 
-    const indexerDbCache = new Map<string, Sqlite3.Database>();
-    function getIndexerDb(evmChainId: number, indexerName: string): Sqlite3.Database {
+    const getIndexerDbConnection = async (evmChainId: number, indexerName: string): Promise<mysql.Connection> => {
         const indexerVersion = availableIndexers.get(indexerName);
         if (indexerVersion === undefined) {
             throw new Error(`Indexer "${indexerName}" not found in available indexers`);
         }
 
-        const key = `${evmChainId}-${indexerName}-${indexerVersion}`;
-        if (indexerDbCache.has(key)) {
-            return indexerDbCache.get(key)!;
-        }
-        const chainConfig = chainConfigs.find(c => c.evmChainId === evmChainId);
-        if (!chainConfig) {
-            throw new Error(`Chain config not found for evmChainId: ${evmChainId}`);
-        }
-        const indexerDbPath = getIndexerDbPath(chainConfig.blockchainId, indexerName, indexerVersion, chainConfig.rpcConfig.rpcSupportsDebug);
-
-        // Check if the database exists
-        if (!fs.existsSync(indexerDbPath)) {
-            throw new Error(`Database for indexer "${indexerName}" not found at ${indexerDbPath}. Make sure the indexer has run at least once.`);
-        }
-
-        const indexingDb = new Database(indexerDbPath, { readonly: true });
-        initializeIndexingDB({ db: indexingDb, isReadonly: true });
-        indexerDbCache.set(key, indexingDb);
-        return indexingDb;
+        const chainConfig = getChainConfig(evmChainId);
+        const pool = await getMysqlPool({
+            debugEnabled: chainConfig.rpcConfig.rpcSupportsDebug,
+            type: "plugin",
+            indexerName: indexerName,
+            chainId: chainConfig.blockchainId,
+        });
+        return pool;
     }
 
-    function getChainConfig(evmChainId: number): ChainConfig {
-        const chainConfig = chainConfigs.find(c => c.evmChainId === evmChainId);
-        if (!chainConfig) {
-            throw new Error(`Chain config not found for evmChainId: ${evmChainId}`);
-        }
-        return chainConfig;
-    }
-    function getAllChainConfigs(): ChainConfig[] {
-        return [...chainConfigs];
-    }
 
     // Validate and register API plugins
     for (const apiPlugin of apiPlugins) {
@@ -181,10 +174,10 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
         console.log(`Registering routes for API plugin "${apiPlugin.name}"`);
         try {
             apiPlugin.registerRoutes(app, {
-                blocksDbFactory: getBlocksDb,
-                indexerDbFactory: getIndexerDb,
+                getBlocksDbHelper: getBlocksDbHelper,
+                getIndexerDbConnection: getIndexerDbConnection,
                 getChainConfig: getChainConfig,
-                getAllChainConfigs: getAllChainConfigs
+                getAllChainConfigs: () => [...chainConfigs]
             });
         } catch (error) {
             console.error(`Failed to register routes for API plugin "${apiPlugin.name}":`, error);

@@ -42,7 +42,7 @@ When running in Docker, the following paths are used:
 
 - **Host `./data` → Container `/data`**: This directory contains:
   - `chains.json` - Your blockchain configuration
-  - SQLite database files for each chain
+  - MySQL databases for each chain
   - Any other persistent data
 
 - **Host `./plugins` → Container `/plugins`**: This directory contains:
@@ -79,21 +79,21 @@ database:
 import type { IndexingPlugin } from "frostbyte-sdk";
 
 const module: IndexingPlugin = {
-    name: "my-indexer",
-    version: 1,
-    usesTraces: false,
+  name: "my-indexer",
+  version: 1,
+  usesTraces: false,
 
-    // Called once on startup
-    initialize: (db) => {
-        db.exec(`CREATE TABLE IF NOT EXISTS my_data (...)`);
-    },
+  // Called once on startup
+  initialize: (db) => {
+    db.exec(`CREATE TABLE IF NOT EXISTS my_data (...)`);
+  },
 
-    // Called for each batch of transactions
-    handleTxBatch: (db, blocksDb, batch) => {
-        for (const tx of batch.txs) {
-            // Index transaction data
-        }
-    },
+  // Called for each batch of transactions
+  handleTxBatch: (db, blocksDb, batch) => {
+    for (const tx of batch.txs) {
+      // Index transaction data
+    }
+  },
 };
 
 export default module;
@@ -107,17 +107,17 @@ API plugins serve REST endpoints using data from indexer databases:
 import type { ApiPlugin } from "frostbyte-sdk";
 
 const module: ApiPlugin = {
-    name: "my-api",
-    requiredIndexers: ["my-indexer"], // Declare which indexers this API needs
+  name: "my-api",
+  requiredIndexers: ["my-indexer"], // Declare which indexers this API needs
 
-    registerRoutes: (app, dbCtx) => {
-        app.get("/:evmChainId/my-endpoint", async (request, reply) => {
-            const { evmChainId } = request.params;
-            // Access the indexer's database
-            const db = dbCtx.indexerDbFactory(evmChainId, "my-indexer");
-            // Query and return data
-        });
-    },
+  registerRoutes: (app, dbCtx) => {
+    app.get("/:evmChainId/my-endpoint", async (request, reply) => {
+      const { evmChainId } = request.params;
+      // Access the indexer's database
+      const db = dbCtx.indexerDbFactory(evmChainId, "my-indexer");
+      // Query and return data
+    });
+  },
 };
 
 export default module;
@@ -138,17 +138,17 @@ Create `chains.json` in your data directory:
 
 ```json
 [{
-    "chainName": "Avalanche C-Chain",
-    "blockchainId": "2q9e4r6Mu3U68nU1fYjgbR6JvwrRx36CohpAX5UQxse55x1Q5",
-    "evmChainId": 43114,
-    "rpcConfig": {
-        "rpcUrl": "https://api.avax.network/ext/bc/C/rpc",
-        "requestBatchSize": 20,
-        "maxConcurrentRequests": 10,
-        "rps": 50,
-        "rpcSupportsDebug": false,
-        "blocksPerBatch": 100
-    }
+  "chainName": "Avalanche C-Chain",
+  "blockchainId": "2q9e4r6Mu3U68nU1fYjgbR6JvwrRx36CohpAX5UQxse55x1Q5",
+  "evmChainId": 43114,
+  "rpcConfig": {
+    "rpcUrl": "https://api.avax.network/ext/bc/C/rpc",
+    "requestBatchSize": 20,
+    "maxConcurrentRequests": 10,
+    "rps": 50,
+    "rpcSupportsDebug": false,
+    "blocksPerBatch": 100
+  }
 }]
 ```
 
