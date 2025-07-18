@@ -9,6 +9,7 @@ import { getCurrentChainConfig, getMysqlPool, getPluginDirs } from './config.js'
 import mysql from 'mysql2/promise';
 
 const TXS_PER_LOOP = 50000;
+const SLEEP_TIME = 3000;
 
 export interface IndexerOptions {
     pool: mysql.Pool;
@@ -98,7 +99,7 @@ async function startIndexer(
             }
 
             // Sleep briefly before next iteration
-            await new Promise(resolve => setTimeout(resolve, 100));
+            await new Promise(resolve => setTimeout(resolve, SLEEP_TIME));
             continue;
         }
 

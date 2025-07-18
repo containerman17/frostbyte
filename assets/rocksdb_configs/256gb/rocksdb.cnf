@@ -1,0 +1,76 @@
+#
+# Percona Server with MyRocks - High-Performance Production Configuration
+# ----------------------------------------------------------------------
+# Hardware: 256GB RAM, Epyc 7502 (32-Core)
+# Focus: Maximum indexing throughput and high compression.
+# Safety: Low durability (can lose last few minutes of data), but database must not corrupt.
+#
+
+[mysqld]
+# --- Basic Settings ---
+default-storage-engine = ROCKSDB
+disable_log_bin
+max_connections = 2000 # A more reasonable limit for a production indexer.
+
+# --- Data Safety & Durability (Performance-Tuned) ---
+# Setting this to 0 remains the single biggest performance gain.
+# It avoids fsync-on-commit, relying on the OS to flush the WAL.
+# This aligns perfectly with your "can lose 5 minutes" requirement while ensuring
+# any recovered transactions are atomic and the DB is not corrupted.
+rocksdb_flush_log_at_trx_commit = 0
+
+# --- Aggressive Memory Allocation (128GB Budget) ---
+# The main cache for data blocks, indexes, and bloom filters. With 256GB of RAM,
+# allocating 100GB here will keep a massive amount of your dataset hot in memory,
+# minimizing read I/O for lookups and compactions.
+rocksdb_block_cache_size = 100G
+
+# Total size for all in-memory write buffers (memtables). A huge buffer allows the system
+# to absorb massive write bursts without immediately stalling for flushes. This smooths
+# out I/O and reduces write amplification.
+rocksdb_db_write_buffer_size = 24G
+
+# Maximum size of the Write-Ahead Log (WAL) files on disk. This should be large enough
+# to handle write bursts without forcing premature flushes.
+rocksdb_max_total_wal_size = 16G
+
+
+# --- CPU & Background Operations (Leveraging the Epyc 7502) ---
+# This is the most critical tuning knob for your powerful CPU.
+# It sets the total number of threads for background flushes and compactions.
+# With 32 cores, we can set this aggressively to 16 to ensure that background
+# work never becomes a bottleneck for foreground writes.
+rocksdb_max_background_jobs = 16
+
+# Allows a single large compaction job to be parallelized across multiple threads.
+# This is highly effective for the large files that will be created by your 24GB write buffer.
+# A value of 4 means a big compaction can use up to 4 cores.
+rocksdb_max_subcompactions = 4
+
+
+# --- I/O Optimization ---
+# Bypass the OS page cache for background writes (flushes and compactions).
+# Since we have a massive 100GB RocksDB block cache, this prevents "double caching"
+# the same data, freeing up system memory and giving more control to the database.
+rocksdb_use_direct_io_for_flush_and_compaction = ON
+
+# Bypass the OS page cache for user-initiated reads. This ensures that reads are
+# served directly from the RocksDB block cache, making its hit/miss ratio accurate
+# and behavior more predictable.
+rocksdb_use_direct_reads = ON
+
+# Increase the readahead size for compactions. This helps ensure I/O is done
+# in efficient, sequential chunks, which is beneficial even on fast SSDs.
+rocksdb_compaction_readahead_size = 8M
+
+
+# --- Compression & On-Disk Compactness ---
+# Same as before, using ZSTD for its excellent compression-to-speed ratio.
+# The default ZSTD level provides a great balance.
+rocksdb_default_cf_options = "block_based_table_factory={cache_index_and_filter_blocks=1;filter_policy=bloomfilter:10:false;whole_key_filtering=1};level_compaction_dynamic_level_bytes=true;optimize_filters_for_hits=true;compaction_pri=kMinOverlappingRatio;compression=kZSTD;bottommost_compression=kZSTD"
+
+
+# --- Aggressive Maintenance ---
+# With a rapidly changing data warehouse, keeping optimizer statistics fresh is key
+# for query performance. Calculating them every 10 minutes is a good start.
+rocksdb_seconds_between_stat_computes = 600

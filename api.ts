@@ -155,6 +155,7 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
             type: "plugin",
             indexerName: indexerName,
             chainId: chainConfig.blockchainId,
+            pluginVersion: indexerVersion,
         });
         return pool;
     }
