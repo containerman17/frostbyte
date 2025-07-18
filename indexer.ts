@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import { getCurrentChainConfig, getMysqlPool, getPluginDirs } from './config.js';
 import mysql from 'mysql2/promise';
 
-const TXS_PER_LOOP = 50000;
+const TXS_PER_LOOP = 10000;
 const SLEEP_TIME = 3000;
 
 export interface IndexerOptions {
