@@ -39,7 +39,13 @@ async function startIndexer(
     }
 
     // Get the pool for this specific indexer with version checking
-    const pool = await getMysqlPool(debugEnabled, "plugin", name, version);
+    const pool = await getMysqlPool({
+        debugEnabled,
+        type: "plugin",
+        indexerName: name,
+        pluginVersion: version,
+        chainId: chainId,
+    });
 
     // kv_int table is already created by getMysqlPool, no need to call initializeIndexingDB
 

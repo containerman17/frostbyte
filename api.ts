@@ -112,7 +112,7 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
     }
 
     const chainConfigCache = new Map<number, ChainConfig>();
-    function getChainConfig(evmChainId: number): ChainConfig {
+    const getChainConfig = (evmChainId: number): ChainConfig => {
         if (chainConfigCache.has(evmChainId)) {
             return chainConfigCache.get(evmChainId)!;
         }
@@ -125,12 +125,16 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
     }
 
     const blocksDbCache = new Map<number, BlocksDBHelper>();
-    async function getBlocksDbHelper(evmChainId: number): Promise<BlocksDBHelper> {
+    const getBlocksDbHelper = async (evmChainId: number): Promise<BlocksDBHelper> => {
         if (blocksDbCache.has(evmChainId)) {
             return blocksDbCache.get(evmChainId)!;
         }
         const chainConfig = getChainConfig(evmChainId);
-        const pool = await getMysqlPool(chainConfig.rpcConfig.rpcSupportsDebug, "blocks");
+        const pool = await getMysqlPool({
+            debugEnabled: chainConfig.rpcConfig.rpcSupportsDebug,
+            type: "blocks",
+            chainId: chainConfig.blockchainId,
+        });
         const blocksDb = await BlocksDBHelper.createFromPool(pool, {
             isReadonly: true,
             hasDebug: chainConfig.rpcConfig.rpcSupportsDebug
@@ -139,20 +143,22 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
         return blocksDb;
     }
 
-    async function getIndexerDbConnection(evmChainId: number, indexerName: string): Promise<mysql.Connection> {
+    const getIndexerDbConnection = async (evmChainId: number, indexerName: string): Promise<mysql.Connection> => {
         const indexerVersion = availableIndexers.get(indexerName);
         if (indexerVersion === undefined) {
             throw new Error(`Indexer "${indexerName}" not found in available indexers`);
         }
 
         const chainConfig = getChainConfig(evmChainId);
-        const pool = await getMysqlPool(chainConfig.rpcConfig.rpcSupportsDebug, "plugin", indexerName);
+        const pool = await getMysqlPool({
+            debugEnabled: chainConfig.rpcConfig.rpcSupportsDebug,
+            type: "plugin",
+            indexerName: indexerName,
+            chainId: chainConfig.blockchainId,
+        });
         return pool;
     }
 
-    function getAllChainConfigs(): ChainConfig[] {
-        return [...chainConfigs];
-    }
 
     // Validate and register API plugins
     for (const apiPlugin of apiPlugins) {
@@ -171,7 +177,7 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
                 getBlocksDbHelper: getBlocksDbHelper,
                 getIndexerDbConnection: getIndexerDbConnection,
                 getChainConfig: getChainConfig,
-                getAllChainConfigs: getAllChainConfigs
+                getAllChainConfigs: () => [...chainConfigs]
             });
         } catch (error) {
             console.error(`Failed to register routes for API plugin "${apiPlugin.name}":`, error);

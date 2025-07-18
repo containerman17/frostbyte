@@ -50,13 +50,17 @@ export type RpcConfig = z.infer<typeof RpcConfigSchema>;
 export type ChainConfig = z.infer<typeof ChainConfigSchema>;
 export type RpcConfigWithBlockSize = z.infer<typeof RpcConfigWithBlockSize>;
 
-export function getCurrentChainConfig(): ChainConfig {
-    const CHAIN_ID = requiredEnvString('CHAIN_ID');
-    const chain = CHAIN_CONFIGS.find(chain => chain.blockchainId === CHAIN_ID);
+export function getChainConfig(chainId: string): ChainConfig {
+    const chain = CHAIN_CONFIGS.find(chain => chain.blockchainId === chainId);
     if (!chain) {
-        throw new Error(`Chain with ID ${CHAIN_ID} not found`);
+        throw new Error(`Chain with ID ${chainId} not found`);
     }
     return chain;
+}
+
+export function getCurrentChainConfig(): ChainConfig {
+    const CHAIN_ID = requiredEnvString('CHAIN_ID');
+    return getChainConfig(CHAIN_ID);
 }
 
 export function getPluginDirs(): string[] {
@@ -71,45 +75,58 @@ export function getPluginDirs(): string[] {
 // MySQL Pool cache - separate pools for blocks and each plugin
 const poolCache = new Map<string, Promise<mysql.Pool>>();
 
-export async function getMysqlPool(debugEnabled: boolean, type: "plugin" | "blocks", indexerName?: string, pluginVersion?: number): Promise<mysql.Pool> {
+type CreatePoolConfig = {
+    debugEnabled: boolean;
+    type: "plugin" | "blocks";
+    indexerName?: string;
+    pluginVersion?: number;
+    chainId?: string;
+}
+
+export async function getMysqlPool(config: CreatePoolConfig): Promise<mysql.Pool> {
+    const chainId = config.chainId || requiredEnvString('CHAIN_ID');
+
     // Create a unique key for each pool
-    const poolKey = type === "blocks"
-        ? `blocks_${debugEnabled}`
-        : `plugin_${indexerName}_${debugEnabled}`;
+    let poolKey = config.type === "blocks"
+        ? `blocks_${chainId}_${config.debugEnabled}`
+        : `plugin_${chainId}_${config.indexerName}_${config.debugEnabled}`;
+
+    poolKey = chainId + "_" + poolKey;
 
     if (!poolCache.has(poolKey)) {
-        poolCache.set(poolKey, createMysqlPool(debugEnabled, type, indexerName, pluginVersion));
+        poolCache.set(poolKey, createMysqlPool({ ...config, chainId }));
     }
 
     return poolCache.get(poolKey)!;
 }
 
-async function createMysqlPool(debugEnabled: boolean, type: "plugin" | "blocks", indexerName?: string, pluginVersion?: number): Promise<mysql.Pool> {
 
-    if (type === "plugin" && typeof pluginVersion !== "number") {
+async function createMysqlPool(config: CreatePoolConfig & { chainId: string }): Promise<mysql.Pool> {
+
+    if (config.type === "plugin" && typeof config.pluginVersion !== "number") {
         throw new Error("Plugin version is required for plugin");
     }
 
-    if (type === "plugin" && !indexerName) {
+    if (config.type === "plugin" && !config.indexerName) {
         throw new Error("Plugin name is required for plugin");
-    } else if (type === "blocks" && indexerName) {
+    } else if (config.type === "blocks" && config.indexerName) {
         throw new Error("Plugin name is not allowed for blocks");
     }
 
     let prefix = ""
-    if (type === "plugin") {
+    if (config.type === "plugin") {
         prefix = "p"
-    } else if (type === "blocks") {
+    } else if (config.type === "blocks") {
         prefix = "b"
     } else {
         throw new Error("Invalid type");
     }
 
-    let postfix = debugEnabled ? "" : "_ndbg"
+    let postfix = config.debugEnabled ? "" : "_ndbg"
 
-    const chainConfig = getCurrentChainConfig();
+    const chainConfig = getChainConfig(config.chainId);
     // Remove version from database name for plugins
-    const dbName = `${prefix}${chainConfig.blockchainId.slice(0, 20)}${type === "blocks" ? "" : "_" + indexerName}${postfix}`;
+    const dbName = `${prefix}${chainConfig.blockchainId.slice(0, 20)}${config.type === "blocks" ? "" : "_" + config.indexerName}${postfix}`;
 
     // MySQL connection details (could be moved to env vars if needed)
     const host = process.env['MYSQL_HOST'] || 'localhost';
@@ -118,14 +135,14 @@ async function createMysqlPool(debugEnabled: boolean, type: "plugin" | "blocks",
     const password = process.env['MYSQL_PASSWORD'] || 'root';
 
     // For plugin databases, check version and drop if needed
-    if (type === "plugin") {
+    if (config.type === "plugin") {
         await handlePluginDatabaseVersioning({
             host,
             port,
             user,
             password,
             dbName,
-            currentVersion: pluginVersion!
+            currentVersion: config.pluginVersion!
         });
     } else {
         // For blocks database, just create if doesn't exist

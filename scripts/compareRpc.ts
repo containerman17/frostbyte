@@ -34,7 +34,7 @@ const testExtended = true;
 
 // Create two BatchRpc instances
 const localRpc = new BatchRpc({
-    rpcUrl: `http://localhost:3080/${evmChainId}/rpc`,
+    rpcUrl: `http://localhost:3080/api/${evmChainId}/rpc`,
     requestBatchSize: 20,
     maxConcurrentRequests: 100,
     rps: 20,
@@ -51,7 +51,7 @@ const officialRpc = new BatchRpc({
 
 async function compareRpcs() {
     console.log('=== RPC Comparison Script ===');
-    console.log(`Local RPC: http://localhost:3080/${evmChainId}/rpc`);
+    console.log(`Local RPC: http://localhost:3080/api/${evmChainId}/rpc`);
     console.log(`Official RPC: ${chainConfig.rpcConfig.rpcUrl}`);
     console.log(`Test mode: ${testDebug ? 'Debug + Extended' : 'Standard + Extended'}`);
     console.log('');
@@ -101,8 +101,8 @@ async function compareRpcs() {
     console.log('');
 
     // 3. Compare Current Block Number
-    console.log('3. Fetching Current Block Number...');
     try {
+        console.log('3. Fetching Current Block Number...');
         const localBlockNumber = await localRpc.getCurrentBlockNumber();
         const officialBlockNumber = await officialRpc.getCurrentBlockNumber();
         // For block number, we just check if local is not ahead of official
@@ -124,7 +124,11 @@ async function compareRpcs() {
     console.log('');
 
     // 4. Compare blocks 1,10,100,1000
-    const blockNumbers = [1, 10, 100, 1000];
+    const localBlockNumber = await localRpc.getCurrentBlockNumber();
+    const blockNumbers: number[] = [0];
+    for (let i = 1; i < localBlockNumber; i *= 2) {
+        blockNumbers.push(i);
+    }
     console.log(`4. Fetching and comparing blocks ${blockNumbers.join(', ')}...`);
 
     try {

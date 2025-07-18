@@ -1,5 +1,6 @@
 import type { ApiPlugin, BlocksDBHelper, RegisterRoutesContext, evmTypes } from "../index";
 import { utils } from "@avalabs/avalanchejs";
+import { logsBloom } from "../index";
 
 // JSON-RPC types
 interface RPCRequest {
@@ -28,11 +29,32 @@ async function parseBlockNumber(param: string | number | undefined, blocksDb: Bl
 }
 
 async function getBlockByNumber(blocksDb: BlocksDBHelper, blockNumber: number): Promise<evmTypes.RpcBlock | null> {
-    return await blocksDb.slow_getBlockWithTransactions(blockNumber);
+    const blockWithoutLogsBloom = await blocksDb.slow_getBlockWithTransactions(blockNumber);
+    if (!blockWithoutLogsBloom) return null;
+
+    // Fetch all receipts for this block to compute logs bloom
+    const receipts: evmTypes.RpcTxReceipt[] = [];
+    if (blockWithoutLogsBloom.transactions && Array.isArray(blockWithoutLogsBloom.transactions)) {
+        for (const tx of blockWithoutLogsBloom.transactions) {
+            const receipt = await blocksDb.getTxReceipt(tx.hash);
+            if (receipt) {
+                // Add logs bloom to receipt
+                const receiptWithBloom = logsBloom.addLogsBloomToReceipt(receipt as any);
+                receipts.push(receiptWithBloom);
+            }
+        }
+    }
+
+    // Add logs bloom to block
+    return logsBloom.addLogsBloomToBlock(blockWithoutLogsBloom as any, receipts);
 }
 
 async function getTxReceipt(blocksDb: BlocksDBHelper, txHash: string) {
-    return blocksDb.getTxReceipt(txHash);
+    const receiptWithoutBloom = await blocksDb.getTxReceipt(txHash);
+    if (!receiptWithoutBloom) return null;
+
+    // Add logs bloom to receipt
+    return logsBloom.addLogsBloomToReceipt(receiptWithoutBloom as any);
 }
 
 async function getBlockTraces(blocksDb: BlocksDBHelper, blockNumber: number) {
@@ -303,10 +325,10 @@ const registerRoutes: ApiPlugin['registerRoutes'] = (app, dbCtx) => {
         const requests = request.body as RPCRequest | RPCRequest[];
 
         if (Array.isArray(requests)) {
-            const responses = requests.map(req => handleRpcRequest(blocksDb, req, dbCtx));
+            const responses = await Promise.all(requests.map(req => handleRpcRequest(blocksDb, req, dbCtx)));
             return responses;
         } else {
-            const response = handleRpcRequest(blocksDb, requests, dbCtx);
+            const response = await handleRpcRequest(blocksDb, requests, dbCtx);
             return response;
         }
     });

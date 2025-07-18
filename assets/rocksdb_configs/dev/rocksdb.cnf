@@ -10,6 +10,8 @@
 # --- User Provided Basics ---
 # Set RocksDB as the default engine for all new tables.
 default-storage-engine = ROCKSDB
+default-tmp-storage-engine = ROCKSDB
+
 
 # Disable binary logging. This is typical for a standalone data warehouse
 # that is not a replication source. It also provides a small performance boost.
