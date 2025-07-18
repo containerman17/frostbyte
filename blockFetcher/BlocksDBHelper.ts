@@ -283,7 +283,7 @@ export class BlocksDBHelper {
             `CREATE TABLE IF NOT EXISTS tx_topics (
                 tx_num INT UNSIGNED NOT NULL,
                 topic_hash BINARY(5) NOT NULL,
-                INDEX idx_topic_hash (topic_hash)
+                INDEX idx_topic_hash_txnum (topic_hash, tx_num)
             ) ENGINE=ROCKSDB`
         ];
 
@@ -310,7 +310,12 @@ export class BlocksDBHelper {
     async getTxBatch(greaterThanTxNum: number, limit: number, includeTraces: boolean, filterEvents: string[] | undefined): Promise<{ txs: StoredTx[], traces: RpcTraceResult[] | undefined, maxTxNum: number }> {
         // Ensure safe values to prevent SQL injection
         const txNumParam = Math.max(0, greaterThanTxNum);
-        const limitParam = Math.min(Math.max(1, limit), 100000);
+        let limitParam = Math.min(Math.max(1, limit), 100000);
+
+        // When filtering events, hard cap to 1000 to avoid huge IN clauses
+        if (filterEvents && filterEvents.length > 0) {
+            limitParam = Math.min(limitParam, 1000);
+        }
 
         let query: string;
 
@@ -327,34 +332,49 @@ export class BlocksDBHelper {
 
             const placeholders = topicHashPrefixes.map(() => '?').join(',');
 
-            // Query using the index directly without glossary lookup
-            query = includeTraces && this.hasDebug
-                ? `SELECT DISTINCT t.tx_num, t.data, t.traces 
-                   FROM txs t 
-                   INNER JOIN tx_topics tt ON t.tx_num = tt.tx_num 
-                   WHERE tt.topic_hash IN (${placeholders}) 
-                   AND t.tx_num > ${txNumParam} 
-                   ORDER BY t.tx_num ASC 
-                   LIMIT ${limitParam}`
-                : `SELECT DISTINCT t.tx_num, t.data 
-                   FROM txs t 
-                   INNER JOIN tx_topics tt ON t.tx_num = tt.tx_num 
-                   WHERE tt.topic_hash IN (${placeholders}) 
-                   AND t.tx_num > ${txNumParam} 
-                   ORDER BY t.tx_num ASC 
-                   LIMIT ${limitParam}`;
+            // First query: Get just the tx_nums using the indexed table (fast)
+            const txNumQuery = `SELECT DISTINCT tt.tx_num 
+                               FROM tx_topics tt 
+                               WHERE tt.topic_hash IN (${placeholders}) 
+                               AND tt.tx_num > ${txNumParam} 
+                               ORDER BY tt.tx_num ASC 
+                               LIMIT ${limitParam}`;
 
             const mysqlGetStarted = performance.now();
-            const [rows] = await this.pool.query<mysql.RowDataPacket[]>(query, topicHashPrefixes);
+            const [txNumRows] = await this.pool.query<mysql.RowDataPacket[]>(txNumQuery, topicHashPrefixes);
             const mysqlGetEnded = performance.now();
             if ((mysqlGetEnded - mysqlGetStarted) > 100) {
-                console.log(`MySQL indexed query took ${mysqlGetEnded - mysqlGetStarted}ms`);
+                console.log(`MySQL tx_num query took ${mysqlGetEnded - mysqlGetStarted}ms`);
+            }
+
+            if (txNumRows.length === 0) {
+                return {
+                    txs: [],
+                    traces: undefined,
+                    maxTxNum
+                };
+            }
+
+            // Extract tx_nums
+            const txNums = txNumRows.map(row => row['tx_num']);
+
+            // Second query: Fetch the actual data for these tx_nums
+            const txNumPlaceholders = txNums.map(() => '?').join(',');
+            const dataQuery = includeTraces && this.hasDebug
+                ? `SELECT tx_num, data, traces FROM txs WHERE tx_num IN (${txNumPlaceholders}) ORDER BY tx_num ASC`
+                : `SELECT tx_num, data FROM txs WHERE tx_num IN (${txNumPlaceholders}) ORDER BY tx_num ASC`;
+
+            const dataQueryStarted = performance.now();
+            const [dataRows] = await this.pool.query<mysql.RowDataPacket[]>(dataQuery, txNums);
+            const dataQueryEnded = performance.now();
+            if ((dataQueryEnded - dataQueryStarted) > 100) {
+                console.log(`MySQL data query took ${dataQueryEnded - dataQueryStarted}ms`);
             }
 
             const txs: StoredTx[] = [];
             const traces: RpcTraceResult[] = [];
 
-            for (const row of rows) {
+            for (const row of dataRows) {
                 const storedTx = JSON.parse(row['data']) as StoredTx;
                 txs.push(storedTx);
 
@@ -540,11 +560,28 @@ export class BlocksDBHelper {
      * Get a value from kv_int table with a default fallback
      */
     private async getIntValue(key: string, defaultValue: number): Promise<number> {
-        const [rows] = await this.pool.execute<mysql.RowDataPacket[]>(
-            'SELECT value FROM kv_int WHERE `key` = ?',
-            [key]
-        );
-        return rows[0]?.['value'] ?? defaultValue;
+        for (let attempt = 1; attempt <= 10; attempt++) {
+            try {
+                const [rows] = await this.pool.execute<mysql.RowDataPacket[]>(
+                    'SELECT value FROM kv_int WHERE `key` = ?',
+                    [key]
+                );
+                return rows[0]?.['value'] ?? defaultValue;
+            } catch (error: any) {
+                if (error.code === 'ER_NO_SUCH_TABLE' && error.sqlMessage?.includes("doesn't exist")) {
+                    console.log(`Table kv_int doesn't exist, attempt ${attempt}/10. Waiting 1 second...`);
+                    if (attempt === 10) {
+                        console.error('Table kv_int still doesn\'t exist after 10 attempts. Exiting.');
+                        process.exit(1);
+                    }
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    continue;
+                }
+                throw error;
+            }
+        }
+        // This should never be reached
+        throw new Error('Unexpected end of retry loop');
     }
 
     /**
