@@ -1,7 +1,7 @@
 import mysql from 'mysql2/promise';
 import { RpcBlock, RpcBlockTransaction, RpcTxReceipt, RpcTraceResult, StoredTx, StoredRpcTxReceipt, CONTRACT_CREATION_TOPIC, RpcTraceCall } from './evmTypes.js';
 import { StoredBlock } from './BatchRpc.js';
-
+const MAX_ROWS_WITH_FILTER = 1000;
 export class BlocksDBHelper {
     private pool: mysql.Pool;
     private isReadonly: boolean;
@@ -314,7 +314,7 @@ export class BlocksDBHelper {
 
         // When filtering events, hard cap to 1000 to avoid huge IN clauses
         if (filterEvents && filterEvents.length > 0) {
-            limitParam = Math.min(limitParam, 1000);
+            limitParam = Math.min(limitParam, MAX_ROWS_WITH_FILTER);
         }
 
         let query: string;

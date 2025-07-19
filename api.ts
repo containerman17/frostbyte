@@ -111,16 +111,17 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
         });
     }
 
-    const chainConfigCache = new Map<number, ChainConfig>();
-    const getChainConfig = (evmChainId: number): ChainConfig => {
-        if (chainConfigCache.has(evmChainId)) {
-            return chainConfigCache.get(evmChainId)!;
+    const chainConfigCache = new Map<string, ChainConfig>();
+    const getChainConfig = (evmChainIdOrBlockchainId: number | string): ChainConfig | undefined => {
+        const idString = String(evmChainIdOrBlockchainId);
+        if (chainConfigCache.has(idString)) {
+            return chainConfigCache.get(idString)!;
         }
-        const chainConfig = chainConfigs.find(c => c.evmChainId === evmChainId);
+        const chainConfig = chainConfigs.find(c => String(c.evmChainId) === idString || c.blockchainId === idString);
         if (!chainConfig) {
-            throw new Error(`Chain config not found for evmChainId: ${evmChainId}`);
+            return undefined;
         }
-        chainConfigCache.set(evmChainId, chainConfig);
+        chainConfigCache.set(idString, chainConfig);
         return chainConfig;
     }
 
@@ -130,6 +131,9 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
             return blocksDbCache.get(evmChainId)!;
         }
         const chainConfig = getChainConfig(evmChainId);
+        if (!chainConfig) {
+            throw new Error(`Chain config not found for evmChainId: ${evmChainId}`);
+        }
         const pool = await getMysqlPool({
             debugEnabled: chainConfig.rpcConfig.rpcSupportsDebug,
             type: "blocks",
@@ -150,6 +154,9 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
         }
 
         const chainConfig = getChainConfig(evmChainId);
+        if (!chainConfig) {
+            throw new Error(`Chain config not found for evmChainId: ${evmChainId}`);
+        }
         const pool = await getMysqlPool({
             debugEnabled: chainConfig.rpcConfig.rpcSupportsDebug,
             type: "plugin",

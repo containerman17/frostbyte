@@ -103,8 +103,13 @@ async function handleRpcRequest(blocksDb: BlocksDBHelper, request: RPCRequest, d
                 const tag = request.params?.[1];
                 const warpAddr = '0x0200000000000000000000000000000000000005';
                 const getBlockchainIDSig = '0x4213cf78';
+                const chainConfig = dbCtx.getChainConfig(await blocksDb.getEvmChainId());
+                if (!chainConfig) {
+                    response.error = { code: -32601, message: 'Chain config not found' };
+                    break;
+                }
                 if (tag === 'latest' && callObj && callObj.to?.toLowerCase() === warpAddr && callObj.data === getBlockchainIDSig) {
-                    const bytes = utils.base58check.decode(dbCtx.getChainConfig(await blocksDb.getEvmChainId()).blockchainId);
+                    const bytes = utils.base58check.decode(chainConfig.blockchainId);
                     response.result = '0x' + Buffer.from(bytes).toString('hex');
                 } else {
                     response.error = { code: -32601, message: 'Unsupported eth_call' };

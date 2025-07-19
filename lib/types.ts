@@ -10,7 +10,7 @@ import mysql from "mysql2/promise";
 export interface RegisterRoutesContext {
     getBlocksDbHelper: (evmChainId: number) => Promise<BlocksDBHelper>;
     getIndexerDbConnection: (evmChainId: number, indexerName: string) => Promise<mysql.Connection>;
-    getChainConfig: (evmChainId: number) => ChainConfig;
+    getChainConfig: (evmChainIdOrBlockchainId: number | string) => ChainConfig | undefined;
     getAllChainConfigs: () => ChainConfig[];
 }
 
