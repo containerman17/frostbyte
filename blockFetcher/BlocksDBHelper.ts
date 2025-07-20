@@ -37,6 +37,10 @@ export class BlocksDBHelper {
         return this.getIntValue('last_stored_block_number', -1);
     }
 
+    setLastStoredBlockNumber(blockNumber: number): void {
+        this.setIntValue('last_stored_block_number', blockNumber);
+    }
+
     getTxCount(): number {
         return this.getIntValue('tx_count', 0);
     }
@@ -57,12 +61,17 @@ export class BlocksDBHelper {
         const storeBlocksTransaction = this.db.transaction(() => {
             for (let i = 0; i < batch.length; i++) {
                 const storedBlock = batch[i]!;
-                if (Number(storedBlock.block.number) !== lastStoredBlockNum + 1) {
-                    throw new Error(`Batch not sorted or has gaps: expected ${lastStoredBlockNum + 1}, got ${Number(storedBlock.block.number)}`);
+                const expectedBlock = lastStoredBlockNum + 1;
+                const actualBlock = Number(storedBlock.block.number);
+                if (actualBlock !== expectedBlock) {
+                    throw new Error(`Batch not sorted or has gaps: expected ${expectedBlock}, got ${actualBlock}. Batch size: ${batch.length}, current index: ${i}, lastStoredBlockNum: ${lastStoredBlockNum}`);
                 }
                 this.storeBlock(storedBlock);
                 lastStoredBlockNum++;
             }
+
+            // Update the last stored block number in the database
+            this.setLastStoredBlockNumber(lastStoredBlockNum);
 
             // Update the transaction count once for the entire batch
             if (totalTxCount > 0) {

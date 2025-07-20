@@ -83,7 +83,7 @@ if (cluster.isPrimary) {
 } else {
     if (process.env['ROLE'] === 'fetcher') {
         const chainConfig = getCurrentChainConfig();
-        const db = await getSqliteDb({
+        const db = getSqliteDb({
             debugEnabled: chainConfig.rpcConfig.rpcSupportsDebug,
             type: "blocks",
             chainId: chainConfig.blockchainId,
@@ -97,7 +97,7 @@ if (cluster.isPrimary) {
         await apiServer.start(port);
     } else if (process.env['ROLE'] === 'indexer') {
         const chainConfig = getCurrentChainConfig();
-        const db = await getSqliteDb({
+        const db = getSqliteDb({
             debugEnabled: chainConfig.rpcConfig.rpcSupportsDebug,
             type: "blocks",
             chainId: chainConfig.blockchainId,

@@ -111,10 +111,10 @@ const module: ApiPlugin = {
   requiredIndexers: ["my-indexer"], // Declare which indexers this API needs
 
   registerRoutes: (app, dbCtx) => {
-    app.get("/:evmChainId/my-endpoint", async (request, reply) => {
+    app.get("/:evmChainId/my-endpoint", (request, reply) => {
       const { evmChainId } = request.params;
       // Access the indexer's database
-      const db = dbCtx.indexerDbFactory(evmChainId, "my-indexer");
+      const db = dbCtx.getIndexerDbConnection(evmChainId, "my-indexer");
       // Query and return data
     });
   },

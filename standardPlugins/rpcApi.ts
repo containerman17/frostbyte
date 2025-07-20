@@ -20,23 +20,23 @@ interface RPCResponse {
     jsonrpc?: string;
 }
 
-async function parseBlockNumber(param: string | number | undefined, blocksDb: BlocksDBHelper): Promise<number> {
+function parseBlockNumber(param: string | number | undefined, blocksDb: BlocksDBHelper): number {
     if (param === undefined) return 0;
     if (typeof param === 'number') return param;
-    if (param === 'latest') return await blocksDb.getLastStoredBlockNumber();
+    if (param === 'latest') return blocksDb.getLastStoredBlockNumber();
     if (param.startsWith('0x')) return parseInt(param, 16);
     return parseInt(param, 10);
 }
 
-async function getBlockByNumber(blocksDb: BlocksDBHelper, blockNumber: number): Promise<evmTypes.RpcBlock | null> {
-    const blockWithoutLogsBloom = await blocksDb.slow_getBlockWithTransactions(blockNumber);
+function getBlockByNumber(blocksDb: BlocksDBHelper, blockNumber: number): evmTypes.RpcBlock | null {
+    const blockWithoutLogsBloom = blocksDb.slow_getBlockWithTransactions(blockNumber);
     if (!blockWithoutLogsBloom) return null;
 
     // Fetch all receipts for this block to compute logs bloom
     const receipts: evmTypes.RpcTxReceipt[] = [];
     if (blockWithoutLogsBloom.transactions && Array.isArray(blockWithoutLogsBloom.transactions)) {
         for (const tx of blockWithoutLogsBloom.transactions) {
-            const receipt = await blocksDb.getTxReceipt(tx.hash);
+            const receipt = blocksDb.getTxReceipt(tx.hash);
             if (receipt) {
                 // Add logs bloom to receipt
                 const receiptWithBloom = logsBloom.addLogsBloomToReceipt(receipt as any);
@@ -49,19 +49,19 @@ async function getBlockByNumber(blocksDb: BlocksDBHelper, blockNumber: number): 
     return logsBloom.addLogsBloomToBlock(blockWithoutLogsBloom as any, receipts);
 }
 
-async function getTxReceipt(blocksDb: BlocksDBHelper, txHash: string) {
-    const receiptWithoutBloom = await blocksDb.getTxReceipt(txHash);
+function getTxReceipt(blocksDb: BlocksDBHelper, txHash: string) {
+    const receiptWithoutBloom = blocksDb.getTxReceipt(txHash);
     if (!receiptWithoutBloom) return null;
 
     // Add logs bloom to receipt
     return logsBloom.addLogsBloomToReceipt(receiptWithoutBloom as any);
 }
 
-async function getBlockTraces(blocksDb: BlocksDBHelper, blockNumber: number) {
+function getBlockTraces(blocksDb: BlocksDBHelper, blockNumber: number) {
     return blocksDb.slow_getBlockTraces(blockNumber);
 }
 
-async function handleRpcRequest(blocksDb: BlocksDBHelper, request: RPCRequest, dbCtx: RegisterRoutesContext): Promise<RPCResponse> {
+function handleRpcRequest(blocksDb: BlocksDBHelper, request: RPCRequest, dbCtx: RegisterRoutesContext): RPCResponse {
     const response: RPCResponse = { jsonrpc: request.jsonrpc || '2.0' };
     if (request.id !== undefined) {
         // Parse numeric strings to actual numbers
@@ -75,26 +75,26 @@ async function handleRpcRequest(blocksDb: BlocksDBHelper, request: RPCRequest, d
     try {
         switch (request.method) {
             case 'eth_chainId':
-                response.result = '0x' + (await blocksDb.getEvmChainId()).toString(16);
+                response.result = '0x' + (blocksDb.getEvmChainId()).toString(16);
                 break;
             case 'eth_blockNumber':
-                response.result = '0x' + (await blocksDb.getLastStoredBlockNumber()).toString(16);
+                response.result = '0x' + (blocksDb.getLastStoredBlockNumber()).toString(16);
                 break;
             case 'eth_getBlockByNumber': {
-                const blockNumber = await parseBlockNumber(request.params?.[0], blocksDb);
-                const block = await getBlockByNumber(blocksDb, blockNumber);
+                const blockNumber = parseBlockNumber(request.params?.[0], blocksDb);
+                const block = getBlockByNumber(blocksDb, blockNumber);
                 response.result = block ?? null;
                 break;
             }
             case 'eth_getTransactionReceipt': {
                 const txHash = request.params?.[0] as string;
-                const receipt = await getTxReceipt(blocksDb, txHash);
+                const receipt = getTxReceipt(blocksDb, txHash);
                 response.result = receipt ?? null;
                 break;
             }
             case 'debug_traceBlockByNumber': {
-                const blockNumber = await parseBlockNumber(request.params?.[0], blocksDb);
-                const traces = await getBlockTraces(blocksDb, blockNumber);
+                const blockNumber = parseBlockNumber(request.params?.[0], blocksDb);
+                const traces = getBlockTraces(blocksDb, blockNumber);
                 response.result = traces;
                 break;
             }
@@ -103,7 +103,7 @@ async function handleRpcRequest(blocksDb: BlocksDBHelper, request: RPCRequest, d
                 const tag = request.params?.[1];
                 const warpAddr = '0x0200000000000000000000000000000000000005';
                 const getBlockchainIDSig = '0x4213cf78';
-                const chainConfig = dbCtx.getChainConfig(await blocksDb.getEvmChainId());
+                const chainConfig = dbCtx.getChainConfig(blocksDb.getEvmChainId());
                 if (!chainConfig) {
                     response.error = { code: -32601, message: 'Chain config not found' };
                     break;
@@ -323,17 +323,17 @@ const registerRoutes: ApiPlugin['registerRoutes'] = (app, dbCtx) => {
                 200: batchResponseSchema
             }
         }
-    }, async (request, reply) => {
+    }, (request, reply) => {
         const { evmChainId } = request.params as { evmChainId: number };
-        const blocksDb = await dbCtx.getBlocksDbHelper(evmChainId);
+        const blocksDb = dbCtx.getBlocksDbHelper(evmChainId);
 
         const requests = request.body as RPCRequest | RPCRequest[];
 
         if (Array.isArray(requests)) {
-            const responses = await Promise.all(requests.map(req => handleRpcRequest(blocksDb, req, dbCtx)));
+            const responses = requests.map(req => handleRpcRequest(blocksDb, req, dbCtx));
             return responses;
         } else {
-            const response = await handleRpcRequest(blocksDb, requests, dbCtx);
+            const response = handleRpcRequest(blocksDb, requests, dbCtx);
             return response;
         }
     });

@@ -144,7 +144,7 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
         return blocksDb;
     }
 
-    const getIndexerDbConnection = async (evmChainId: number, indexerName: string): sqlite3.Database => {
+    const getIndexerDbConnection = (evmChainId: number, indexerName: string): sqlite3.Database => {
         const indexerVersion = availableIndexers.get(indexerName);
         if (indexerVersion === undefined) {
             throw new Error(`Indexer "${indexerName}" not found in available indexers`);

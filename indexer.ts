@@ -76,7 +76,7 @@ async function startIndexer(
 
         // Fetch data from BlocksDBHelper (async operation)
         const getStart = performance.now();
-        const transactions = await blocksDb.getTxBatch(lastIndexedTx, TXS_PER_LOOP, indexer.usesTraces, filterEvents);
+        const transactions = blocksDb.getTxBatch(lastIndexedTx, TXS_PER_LOOP, indexer.usesTraces, filterEvents);
         const indexingStart = performance.now();
         hadSomethingToIndex = transactions.txs.length > 0;
 
@@ -111,7 +111,7 @@ async function startIndexer(
         const indexingFinish = performance.now();
 
         // Get progress information (async operations outside transaction)
-        const lastStoredBlock = await blocksDb.getLastStoredBlockNumber();
+        const lastStoredBlock = blocksDb.getLastStoredBlockNumber();
         const lastIndexedBlock = transactions.txs[transactions.txs.length - 1]!.receipt.blockNumber;
         const lastIndexedBlockNum = parseInt(lastIndexedBlock);
         const indexingPercentage = ((lastIndexedBlockNum / lastStoredBlock) * 100).toFixed(2);
@@ -139,7 +139,7 @@ export async function startAllIndexers(options: IndexerOptions): Promise<void> {
     );
 
     //FIXME: figure out how to actually land evmChainID here and compare
-    const evmChainId = await blocksDb.getEvmChainId();
+    const evmChainId = blocksDb.getEvmChainId();
     // if (evmChainId !== parseInt(options.chainId)) {
     //     throw new Error(`BlocksDB chain ID mismatch: expected ${options.chainId}, got ${evmChainId}`);
     // }
@@ -173,7 +173,7 @@ export async function startSingleIndexer(options: SingleIndexerOptions): Promise
     );
 
     //FIXME: figure out how to actually land evmChainID here and compare
-    const evmChainId = await blocksDb.getEvmChainId();
+    const evmChainId = blocksDb.getEvmChainId();
     // if (evmChainId !== parseInt(options.chainId)) {
     //     throw new Error(`BlocksDB chain ID mismatch: expected ${options.chainId}, got ${evmChainId}`);
     // }
@@ -187,7 +187,7 @@ export async function startSingleIndexer(options: SingleIndexerOptions): Promise
     }
 
     await startIndexer(indexer, blocksDb, options.chainId, options.exitWhenDone || false, options.debugEnabled);
-    await blocksDb.close();
+    blocksDb.close();
 }
 
 export async function getAvailableIndexers(): Promise<string[]> {

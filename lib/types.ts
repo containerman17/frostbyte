@@ -8,8 +8,8 @@ import { ChainConfig } from "../config";
 import sqlite3 from "better-sqlite3";
 
 export interface RegisterRoutesContext {
-    getBlocksDbHelper: (evmChainId: number) => Promise<BlocksDBHelper>;
-    getIndexerDbConnection: (evmChainId: number, indexerName: string) => Promise<sqlite3.Database>;
+    getBlocksDbHelper: (evmChainId: number) => BlocksDBHelper;
+    getIndexerDbConnection: (evmChainId: number, indexerName: string) => sqlite3.Database;
     getChainConfig: (evmChainIdOrBlockchainId: number | string) => ChainConfig | undefined;
     getAllChainConfigs: () => ChainConfig[];
 }

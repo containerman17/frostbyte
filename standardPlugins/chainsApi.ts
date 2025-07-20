@@ -38,15 +38,15 @@ const module: ApiPlugin = {
                     }
                 }
             }
-        }, async (request, reply) => {
+        }, (request, reply) => {
             const configs = dbCtx.getAllChainConfigs();
             const result: ChainStatus[] = [];
             for (const config of configs) {
-                const blocksDb = await dbCtx.getBlocksDbHelper(config.evmChainId);
+                const blocksDb = dbCtx.getBlocksDbHelper(config.evmChainId);
 
-                const lastStoredBlockNumber = await blocksDb.getLastStoredBlockNumber();
-                const latestRemoteBlockNumber = await blocksDb.getBlockchainLatestBlockNum();
-                const txCount = await blocksDb.getTxCount();
+                const lastStoredBlockNumber = blocksDb.getLastStoredBlockNumber();
+                const latestRemoteBlockNumber = blocksDb.getBlockchainLatestBlockNum();
+                const txCount = blocksDb.getTxCount();
 
                 // Calculate projected transaction count based on block ratio
                 let projectedTxCount = txCount;
@@ -56,10 +56,10 @@ const module: ApiPlugin = {
                 }
 
                 result.push({
-                    evmChainId: await blocksDb.getEvmChainId(),
+                    evmChainId: blocksDb.getEvmChainId(),
                     chainName: config.chainName,
                     blockchainId: config.blockchainId,
-                    hasDebug: (await blocksDb.getHasDebug()) === 1,
+                    hasDebug: (blocksDb.getHasDebug()) === 1,
                     lastStoredBlockNumber,
                     latestRemoteBlockNumber,
                     txCount,

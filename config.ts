@@ -122,9 +122,8 @@ function createSqliteDb(config: CreateDbConfig & { chainId: string }): Database.
 
     let postfix = config.debugEnabled ? "" : "_ndbg"
 
-    const chainConfig = getChainConfig(config.chainId);
     // Database file name
-    const dbName = `${prefix}${chainConfig.blockchainId.slice(0, 20)}${config.type === "blocks" ? "" : "_" + config.indexerName}${postfix}.db`;
+    const dbName = `${prefix}${config.type === "blocks" ? "" : "_" + config.indexerName}${postfix}.db`;
 
     // Create directory structure
     const dbDir = path.join(DATA_DIR, config.chainId);

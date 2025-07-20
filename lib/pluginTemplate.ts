@@ -76,10 +76,10 @@ const module: ApiPlugin = {
                     }
                 }
             }
-        }, async (request, reply) => {
+        }, (request, reply) => {
             const { evmChainId } = request.params as { evmChainId: number };
             // Get the database for the indexer we depend on
-            const db = dbCtx.indexerDbFactory(evmChainId, "${name}-indexer");
+            const db = dbCtx.getIndexerDbConnection(evmChainId, "${name}-indexer");
 
             const result = prepQueryCached(db, \`
                 SELECT total_count FROM ${name}_indexer_data WHERE id = 1
