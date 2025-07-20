@@ -3,6 +3,23 @@ import { rmSync, statSync, readdirSync } from 'fs'
 import { join } from 'path'
 import sqlite3 from 'better-sqlite3'
 
+// Type definitions for rocksdb-native (since it has no TS support)
+interface RocksDBWriter {
+    put(key: Buffer, value: string): void
+    flush(): Promise<void>
+}
+
+interface RocksDBReader {
+    get(key: Buffer): Promise<string>
+    flush(): void
+}
+
+interface RocksDBInstance {
+    write(): RocksDBWriter
+    read(): RocksDBReader
+    close(): Promise<void>
+}
+
 export interface RpcBlockTransaction {
     hash: string;
     blockHash: string;
@@ -40,6 +57,7 @@ let SEED = 12345 // Deterministic seed
 try {
     rmSync('benchmark-db', { recursive: true, force: true })
     rmSync('benchmark.sqlite', { force: true })
+    rmSync('benchmark-rocks.db', { recursive: true, force: true })
     console.log('Deleted existing databases')
 } catch (e) {
     // Databases don't exist, that's fine
@@ -161,15 +179,21 @@ function generateBatch(size: number): Array<{ key: Buffer, value: RpcBlockTransa
 
 // Benchmark function
 async function runBenchmark() {
+    // Dynamic import for rocksdb-native (ES module compatibility)
+    const { default: RocksDB } = await import('rocksdb-native') as any
+    const rocksdb: RocksDBInstance = new RocksDB('./benchmark-rocks.db')
+
     console.log(`Starting benchmark with batch size: ${BATCH_SIZE}`)
     console.log(`Running for ${LOOP_COUNT} loops`)
     console.log(`Seed: ${SEED} (deterministic data generation)`)
     console.log('Key size: 10 bytes, Value: RpcBlockTransaction strings (varied sizes, 3-7 access entries)')
-    console.log('Comparing LevelDB vs SQLite (WAL mode) - both storing strings (fair comparison)')
+    console.log('Comparing LevelDB vs RocksDB vs SQLite (WAL mode) - all storing strings (fair comparison)')
     console.log('---')
 
     let totalLevelWriteTime = 0
     let totalLevelReadTime = 0
+    let totalRocksWriteTime = 0
+    let totalRocksReadTime = 0
     let totalSqliteWriteTime = 0
     let totalSqliteReadTime = 0
 
@@ -207,6 +231,28 @@ async function runBenchmark() {
         const levelReadTime = levelReadEnd - levelReadStart
         totalLevelReadTime += levelReadTime
 
+        // === ROCKSDB OPERATIONS ===
+
+        // Measure RocksDB write time
+        const rocksWriteStart = performance.now()
+        const rocksWriter = rocksdb.write()
+        for (const { key, value } of batchData) {
+            rocksWriter.put(key, JSON.stringify(value))
+        }
+        await rocksWriter.flush()
+        const rocksWriteEnd = performance.now()
+        const rocksWriteTime = rocksWriteEnd - rocksWriteStart
+        totalRocksWriteTime += rocksWriteTime
+
+        // Measure RocksDB parallel read time
+        const rocksReadStart = performance.now()
+        const rocksReader = rocksdb.read()
+        const rocksReadPromises = batchData.map(({ key }) => rocksReader.get(key))
+        await Promise.all(rocksReadPromises)
+        const rocksReadEnd = performance.now()
+        const rocksReadTime = rocksReadEnd - rocksReadStart
+        totalRocksReadTime += rocksReadTime
+
         // === SQLITE OPERATIONS ===
 
         // Measure SQLite write time
@@ -229,6 +275,8 @@ async function runBenchmark() {
         // Calculate rates
         const levelWriteRate = (BATCH_SIZE / levelWriteTime * 1000).toFixed(0)
         const levelReadRate = (BATCH_SIZE / levelReadTime * 1000).toFixed(0)
+        const rocksWriteRate = (BATCH_SIZE / rocksWriteTime * 1000).toFixed(0)
+        const rocksReadRate = (BATCH_SIZE / rocksReadTime * 1000).toFixed(0)
         const sqliteWriteRate = (BATCH_SIZE / sqliteWriteTime * 1000).toFixed(0)
         const sqliteReadRate = (BATCH_SIZE / sqliteReadTime * 1000).toFixed(0)
 
@@ -240,6 +288,8 @@ async function runBenchmark() {
         console.log(`  Avg TX size: ~${avgTxSize} bytes`)
         console.log(`  LevelDB Write: ${levelWriteTime.toFixed(2)}ms (${levelWriteRate} ops/sec)`)
         console.log(`  LevelDB Read:  ${levelReadTime.toFixed(2)}ms (${levelReadRate} ops/sec)`)
+        console.log(`  RocksDB Write: ${rocksWriteTime.toFixed(2)}ms (${rocksWriteRate} ops/sec)`)
+        console.log(`  RocksDB Read:  ${rocksReadTime.toFixed(2)}ms (${rocksReadRate} ops/sec)`)
         console.log(`  SQLite Write:  ${sqliteWriteTime.toFixed(2)}ms (${sqliteWriteRate} ops/sec)`)
         console.log(`  SQLite Read:   ${sqliteReadTime.toFixed(2)}ms (${sqliteReadRate} ops/sec)`)
         console.log('---')
@@ -250,6 +300,8 @@ async function runBenchmark() {
 
     const avgLevelWriteRate = (totalOps / totalLevelWriteTime * 1000).toFixed(0)
     const avgLevelReadRate = (totalOps / totalLevelReadTime * 1000).toFixed(0)
+    const avgRocksWriteRate = (totalOps / totalRocksWriteTime * 1000).toFixed(0)
+    const avgRocksReadRate = (totalOps / totalRocksReadTime * 1000).toFixed(0)
     const avgSqliteWriteRate = (totalOps / totalSqliteWriteTime * 1000).toFixed(0)
     const avgSqliteReadRate = (totalOps / totalSqliteReadTime * 1000).toFixed(0)
 
@@ -261,17 +313,23 @@ async function runBenchmark() {
     console.log(`    Read time:  ${totalLevelReadTime.toFixed(2)}ms (avg ${avgLevelReadRate} ops/sec)`)
     console.log(`    Total time: ${(totalLevelWriteTime + totalLevelReadTime).toFixed(2)}ms`)
     console.log('')
+    console.log('  ROCKSDB:')
+    console.log(`    Write time: ${totalRocksWriteTime.toFixed(2)}ms (avg ${avgRocksWriteRate} ops/sec)`)
+    console.log(`    Read time:  ${totalRocksReadTime.toFixed(2)}ms (avg ${avgRocksReadRate} ops/sec)`)
+    console.log(`    Total time: ${(totalRocksWriteTime + totalRocksReadTime).toFixed(2)}ms`)
+    console.log('')
     console.log('  SQLITE:')
     console.log(`    Write time: ${totalSqliteWriteTime.toFixed(2)}ms (avg ${avgSqliteWriteRate} ops/sec)`)
     console.log(`    Read time:  ${totalSqliteReadTime.toFixed(2)}ms (avg ${avgSqliteReadRate} ops/sec)`)
     console.log(`    Total time: ${(totalSqliteWriteTime + totalSqliteReadTime).toFixed(2)}ms`)
     console.log('')
     console.log('  COMPARISON:')
-    console.log(`    Write speed: SQLite is ${(totalLevelWriteTime / totalSqliteWriteTime).toFixed(2)}x ${totalLevelWriteTime > totalSqliteWriteTime ? 'slower' : 'faster'} than LevelDB`)
-    console.log(`    Read speed:  SQLite is ${(totalLevelReadTime / totalSqliteReadTime).toFixed(2)}x ${totalLevelReadTime > totalSqliteReadTime ? 'slower' : 'faster'} than LevelDB`)
+    console.log(`    Write speed: RocksDB vs LevelDB: ${(totalLevelWriteTime / totalRocksWriteTime).toFixed(2)}x, SQLite vs LevelDB: ${(totalLevelWriteTime / totalSqliteWriteTime).toFixed(2)}x`)
+    console.log(`    Read speed:  RocksDB vs LevelDB: ${(totalLevelReadTime / totalRocksReadTime).toFixed(2)}x, SQLite vs LevelDB: ${(totalLevelReadTime / totalSqliteReadTime).toFixed(2)}x`)
 
     // Close databases before checking sizes
     await db.close()
+    await rocksdb.close()
     sqlite.close()
 
     // Check database sizes
@@ -290,6 +348,7 @@ async function runBenchmark() {
 
         const sqliteTotalSize = sqliteMainSize + sqliteWalSize + sqliteShmSize
         const levelDbSize = getDirSize('benchmark-db')
+        const rocksDbSize = getDirSize('benchmark-rocks.db')
 
         console.log('')
         console.log('  DATABASE SIZES:')
@@ -302,7 +361,9 @@ async function runBenchmark() {
         }
         console.log(`    SQLite (total): ${(sqliteTotalSize / 1024 / 1024).toFixed(2)} MB`)
         console.log(`    LevelDB:        ${(levelDbSize / 1024 / 1024).toFixed(2)} MB`)
-        console.log(`    Size ratio: SQLite is ${(sqliteTotalSize / levelDbSize).toFixed(2)}x ${sqliteTotalSize > levelDbSize ? 'larger' : 'smaller'} than LevelDB`)
+        console.log(`    RocksDB:        ${(rocksDbSize / 1024 / 1024).toFixed(2)} MB`)
+        console.log(`    Size comparison: SQLite/LevelDB: ${(sqliteTotalSize / levelDbSize).toFixed(2)}x, RocksDB/LevelDB: ${(rocksDbSize / levelDbSize).toFixed(2)}x`)
+
     } catch (e) {
         console.log('    Could not determine database sizes')
     }
