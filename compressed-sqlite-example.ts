@@ -109,57 +109,59 @@ function createRegularDatabase(): void {
 function createCompressedDatabase(): void {
     console.log('Creating compressed SQLite database...');
 
-    // Create in-memory database first to load extension
-    const memDb = sqlite3(':memory:');
-    memDb.loadExtension(PLUGIN_PATH);
-    memDb.close();
+    // Use VACUUM INTO approach which is more compatible with better-sqlite3
+    const sourceDb = sqlite3(REGULAR_DB);
+    sourceDb.loadExtension(PLUGIN_PATH);
 
-    // Open compressed database with zstd VFS and tuning parameters
+    // Create compressed database using VACUUM INTO with VFS parameters
     const compressedUri = `file:${COMPRESSED_DB}?vfs=zstd&level=6&threads=4&outer_page_size=8192&outer_unsafe=true`;
-    const db = sqlite3(compressedUri, { verbose: console.log });
 
-    // Load extension for this connection too
-    db.loadExtension(PLUGIN_PATH);
+    try {
+        sourceDb.exec(`VACUUM INTO '${compressedUri}'`);
+        console.log(`Created compressed database via VACUUM INTO`);
+    } catch (error) {
+        console.log('VACUUM INTO failed, trying alternative approach...');
 
-    // Optimize settings for bulk loading
-    db.pragma('page_size = 16384');        // Larger pages compress better
-    db.pragma('cache_size = -102400');     // 100MB cache
-    db.pragma('journal_mode = OFF');       // Faster bulk loading
-    db.pragma('synchronous = OFF');        // Faster bulk loading
+        // Alternative approach: create compressed DB directly
+        sourceDb.close();
 
-    // Create table
-    db.exec(`
-    CREATE TABLE hello_world (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      data TEXT NOT NULL
-    )
-  `);
+        // Create a temporary database to work with
+        const tempDb = sqlite3(':memory:');
+        tempDb.loadExtension(PLUGIN_PATH);
 
-    // Prepare insert statement
-    const insert = db.prepare('INSERT INTO hello_world (data) VALUES (?)');
+        // Attach the compressed database
+        tempDb.exec(`ATTACH DATABASE '${compressedUri}' AS compressed`);
 
-    // Insert data in a transaction
-    const insertMany = db.transaction((records: string[]) => {
-        for (const record of records) {
-            insert.run(record);
-        }
-    });
+        // Copy data from regular database
+        tempDb.exec(`
+      CREATE TABLE compressed.hello_world (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        data TEXT NOT NULL
+      )
+    `);
 
-    // Generate and insert the same sample data
-    const sampleData: string[] = [];
-    for (let i = 1; i <= NUM_RECORDS; i++) {
-        sampleData.push(generateSampleJson(i));
+        // Copy data in batches
+        const sourceDbRead = sqlite3(REGULAR_DB, { readonly: true });
+        const selectAll = sourceDbRead.prepare('SELECT data FROM hello_world ORDER BY id');
+        const insertCompressed = tempDb.prepare('INSERT INTO compressed.hello_world (data) VALUES (?)');
+
+        const insertMany = tempDb.transaction((records: { data: string }[]) => {
+            for (const record of records) {
+                insertCompressed.run(record.data);
+            }
+        });
+
+        const allRecords = selectAll.all() as { data: string }[];
+        insertMany(allRecords);
+
+        sourceDbRead.close();
+        tempDb.exec('DETACH DATABASE compressed');
+        tempDb.close();
+
+        console.log(`Inserted ${allRecords.length} records into compressed database`);
     }
 
-    insertMany(sampleData);
-
-    console.log(`Inserted ${NUM_RECORDS} records into compressed database`);
-
-    // Reset journal mode for normal operation
-    db.pragma('journal_mode = DELETE');
-    db.pragma('synchronous = NORMAL');
-
-    db.close();
+    sourceDb.close();
 }
 
 function calculateRawDataSize(): number {
@@ -218,15 +220,16 @@ try {
     const regularCount = regularDb.prepare('SELECT COUNT(*) as count FROM hello_world').get() as { count: number };
     regularDb.close();
 
-    const memDb = sqlite3(':memory:');
-    memDb.loadExtension(PLUGIN_PATH);
-    memDb.close();
+    // Use ATTACH approach for reading compressed database
+    const verifyDb = sqlite3(':memory:');
+    verifyDb.loadExtension(PLUGIN_PATH);
 
     const compressedUri = `file:${COMPRESSED_DB}?vfs=zstd&mode=ro`;
-    const compressedDb = sqlite3(compressedUri, { readonly: true });
-    compressedDb.loadExtension(PLUGIN_PATH);
-    const compressedCount = compressedDb.prepare('SELECT COUNT(*) as count FROM hello_world').get() as { count: number };
-    compressedDb.close();
+    verifyDb.exec(`ATTACH DATABASE '${compressedUri}' AS compressed`);
+
+    const compressedCount = verifyDb.prepare('SELECT COUNT(*) as count FROM compressed.hello_world').get() as { count: number };
+    verifyDb.exec('DETACH DATABASE compressed');
+    verifyDb.close();
 
     console.log(`Regular DB record count:    ${regularCount.count}`);
     console.log(`Compressed DB record count: ${compressedCount.count}`);
