@@ -1,6 +1,7 @@
 import sqlite3 from 'better-sqlite3';
 import { existsSync, statSync, unlinkSync } from 'fs';
 import { join } from 'path';
+import { execSync } from 'child_process';
 
 // Configuration
 const PLUGIN_PATH = './sqlite_zstd-v0.3.5-x86_64-unknown-linux-gnu/libsqlite_zstd.so';
@@ -109,59 +110,24 @@ function createRegularDatabase(): void {
 function createCompressedDatabase(): void {
     console.log('Creating compressed SQLite database...');
 
-    // Use VACUUM INTO approach which is more compatible with better-sqlite3
-    const sourceDb = sqlite3(REGULAR_DB);
-    sourceDb.loadExtension(PLUGIN_PATH);
-
-    // Create compressed database using VACUUM INTO with VFS parameters
+    // Use sqlite3 CLI directly as recommended by sqlite_zstd_vfs documentation
     const compressedUri = `file:${COMPRESSED_DB}?vfs=zstd&level=6&threads=4&outer_page_size=8192&outer_unsafe=true`;
 
     try {
-        sourceDb.exec(`VACUUM INTO '${compressedUri}'`);
-        console.log(`Created compressed database via VACUUM INTO`);
+        // Use sqlite3 CLI to create compressed database via VACUUM INTO
+        const command = `sqlite3 "${REGULAR_DB}" -bail -cmd '.load ${PLUGIN_PATH}' "VACUUM INTO '${compressedUri}'"`;
+
+        console.log('Executing sqlite3 CLI command for compression...');
+        const output = execSync(command, { encoding: 'utf8', stdio: 'pipe' });
+
+        console.log('Created compressed database via sqlite3 CLI VACUUM INTO');
+        if (output.trim()) {
+            console.log('CLI output:', output.trim());
+        }
     } catch (error) {
-        console.log('VACUUM INTO failed, trying alternative approach...');
-
-        // Alternative approach: create compressed DB directly
-        sourceDb.close();
-
-        // Create a temporary database to work with
-        const tempDb = sqlite3(':memory:');
-        tempDb.loadExtension(PLUGIN_PATH);
-
-        // Attach the compressed database
-        tempDb.exec(`ATTACH DATABASE '${compressedUri}' AS compressed`);
-
-        // Copy data from regular database
-        tempDb.exec(`
-      CREATE TABLE compressed.hello_world (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        data TEXT NOT NULL
-      )
-    `);
-
-        // Copy data in batches
-        const sourceDbRead = sqlite3(REGULAR_DB, { readonly: true });
-        const selectAll = sourceDbRead.prepare('SELECT data FROM hello_world ORDER BY id');
-        const insertCompressed = tempDb.prepare('INSERT INTO compressed.hello_world (data) VALUES (?)');
-
-        const insertMany = tempDb.transaction((records: { data: string }[]) => {
-            for (const record of records) {
-                insertCompressed.run(record.data);
-            }
-        });
-
-        const allRecords = selectAll.all() as { data: string }[];
-        insertMany(allRecords);
-
-        sourceDbRead.close();
-        tempDb.exec('DETACH DATABASE compressed');
-        tempDb.close();
-
-        console.log(`Inserted ${allRecords.length} records into compressed database`);
+        console.error('Failed to create compressed database with sqlite3 CLI:', error);
+        throw error;
     }
-
-    sourceDb.close();
 }
 
 function calculateRawDataSize(): number {
@@ -220,16 +186,12 @@ try {
     const regularCount = regularDb.prepare('SELECT COUNT(*) as count FROM hello_world').get() as { count: number };
     regularDb.close();
 
-    // Use ATTACH approach for reading compressed database
-    const verifyDb = sqlite3(':memory:');
-    verifyDb.loadExtension(PLUGIN_PATH);
-
+    // Use sqlite3 CLI to read from compressed database
     const compressedUri = `file:${COMPRESSED_DB}?vfs=zstd&mode=ro`;
-    verifyDb.exec(`ATTACH DATABASE '${compressedUri}' AS compressed`);
+    const countCommand = `sqlite3 ":memory:" -bail -cmd '.load ${PLUGIN_PATH}' -cmd '.open ${compressedUri}' "SELECT COUNT(*) FROM hello_world"`;
 
-    const compressedCount = verifyDb.prepare('SELECT COUNT(*) as count FROM compressed.hello_world').get() as { count: number };
-    verifyDb.exec('DETACH DATABASE compressed');
-    verifyDb.close();
+    const compressedCountOutput = execSync(countCommand, { encoding: 'utf8' }).trim();
+    const compressedCount = { count: parseInt(compressedCountOutput) };
 
     console.log(`Regular DB record count:    ${regularCount.count}`);
     console.log(`Compressed DB record count: ${compressedCount.count}`);
