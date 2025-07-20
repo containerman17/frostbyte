@@ -42,7 +42,7 @@ When running in Docker, the following paths are used:
 
 - **Host `./data` → Container `/data`**: This directory contains:
   - `chains.json` - Your blockchain configuration
-  - MySQL databases for each chain
+  - sqlite databases for each chain
   - Any other persistent data
 
 - **Host `./plugins` → Container `/plugins`**: This directory contains:

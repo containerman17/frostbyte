@@ -5,14 +5,14 @@ import { fileURLToPath } from 'node:url';
 import { getIntValue, setIntValue } from './lib/dbHelper.js';
 import { IndexingPlugin, TxBatch } from './lib/types.js';
 import fs from 'node:fs';
-import { getCurrentChainConfig, getMysqlPool, getPluginDirs } from './config.js';
-import mysql from 'mysql2/promise';
+import { getCurrentChainConfig, getSqliteDb, getPluginDirs } from './config.js';
+import sqlite3 from 'better-sqlite3';
 
 const TXS_PER_LOOP = 10000;
 const SLEEP_TIME = 3000;
 
 export interface IndexerOptions {
-    pool: mysql.Pool;
+    pool: sqlite3.Database;
     chainId: string;
     exitWhenDone?: boolean;
     debugEnabled: boolean;
@@ -40,7 +40,7 @@ async function startIndexer(
     }
 
     // Get the pool for this specific indexer with version checking
-    const pool = await getMysqlPool({
+    const pool = await getSqliteDb({
         debugEnabled,
         type: "plugin",
         indexerName: name,
@@ -48,7 +48,7 @@ async function startIndexer(
         chainId: chainId,
     });
 
-    // kv_int table is already created by getMysqlPool, no need to call initializeIndexingDB
+    // kv_int table is already created by getSqliteDb, no need to call initializeIndexingDB
 
     // Initialize indexer if needed
     const isIndexerInitialized = await getIntValue(pool, `isIndexerInitialized_${name}`, 0) === 1;
@@ -79,7 +79,7 @@ async function startIndexer(
         // Get last indexed transaction from db (outside of transaction)
         const lastIndexedTx = await getIntValue(pool, `lastIndexedTx_${name}`, -1);
 
-        // Fetch data from MySQL BlocksDBHelper (async operation)
+        // Fetch data from BlocksDBHelper (async operation)
         const getStart = performance.now();
         const transactions = await blocksDb.getTxBatch(lastIndexedTx, TXS_PER_LOOP, indexer.usesTraces, filterEvents);
         const indexingStart = performance.now();

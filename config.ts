@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 import path from 'node:path';
 import fs from 'node:fs';
 import { z } from 'zod';
-import mysql from 'mysql2/promise';
+import Database from 'better-sqlite3';
 
 dotenv.config();
 
@@ -72,10 +72,10 @@ export function getPluginDirs(): string[] {
     return PLUGIN_DIRS.split(/[,;]/).map(dir => dir.trim()).filter(dir => dir.length > 0);
 }
 
-// MySQL Pool cache - separate pools for blocks and each plugin
-const poolCache = new Map<string, Promise<mysql.Pool>>();
+// SQLite database cache - separate databases for blocks and each plugin
+const dbCache = new Map<string, Database.Database>();
 
-type CreatePoolConfig = {
+type CreateDbConfig = {
     debugEnabled: boolean;
     type: "plugin" | "blocks";
     indexerName?: string;
@@ -83,26 +83,24 @@ type CreatePoolConfig = {
     chainId?: string;
 }
 
-export async function getMysqlPool(config: CreatePoolConfig): Promise<mysql.Pool> {
+export function getSqliteDb(config: CreateDbConfig): Database.Database {
     const chainId = config.chainId || requiredEnvString('CHAIN_ID');
 
-    // Create a unique key for each pool
-    let poolKey = config.type === "blocks"
+    // Create a unique key for each database
+    let dbKey = config.type === "blocks"
         ? `blocks_${chainId}_${config.debugEnabled}`
         : `plugin_${chainId}_${config.indexerName}_${config.debugEnabled}`;
 
-    poolKey = chainId + "_" + poolKey;
+    dbKey = chainId + "_" + dbKey;
 
-    if (!poolCache.has(poolKey)) {
-        poolCache.set(poolKey, createMysqlPool({ ...config, chainId }));
+    if (!dbCache.has(dbKey)) {
+        dbCache.set(dbKey, createSqliteDb({ ...config, chainId }));
     }
 
-    return poolCache.get(poolKey)!;
+    return dbCache.get(dbKey)!;
 }
 
-
-async function createMysqlPool(config: CreatePoolConfig & { chainId: string }): Promise<mysql.Pool> {
-
+function createSqliteDb(config: CreateDbConfig & { chainId: string }): Database.Database {
     if (config.type === "plugin" && typeof config.pluginVersion !== "number") {
         throw new Error("Plugin version is required for plugin");
     }
@@ -125,189 +123,120 @@ async function createMysqlPool(config: CreatePoolConfig & { chainId: string }): 
     let postfix = config.debugEnabled ? "" : "_ndbg"
 
     const chainConfig = getChainConfig(config.chainId);
-    // Remove version from database name for plugins
-    const dbName = `${prefix}${chainConfig.blockchainId.slice(0, 20)}${config.type === "blocks" ? "" : "_" + config.indexerName}${postfix}`;
+    // Database file name
+    const dbName = `${prefix}${chainConfig.blockchainId.slice(0, 20)}${config.type === "blocks" ? "" : "_" + config.indexerName}${postfix}.db`;
 
-    // MySQL connection details (could be moved to env vars if needed)
-    const host = process.env['MYSQL_HOST'] || 'localhost';
-    const port = parseInt(process.env['MYSQL_PORT'] || '3306');
-    const user = process.env['MYSQL_USER'] || 'root';
-    const password = process.env['MYSQL_PASSWORD'] || 'root';
+    // Create directory structure
+    const dbDir = path.join(DATA_DIR, config.chainId);
+    if (!fs.existsSync(dbDir)) {
+        fs.mkdirSync(dbDir, { recursive: true });
+    }
+
+    const dbPath = path.join(dbDir, dbName);
 
     // For plugin databases, check version and drop if needed
     if (config.type === "plugin") {
-        await handlePluginDatabaseVersioning({
-            host,
-            port,
-            user,
-            password,
+        handlePluginDatabaseVersioning({
+            dbPath,
             dbName,
             currentVersion: config.pluginVersion!
         });
-    } else {
-        // For blocks database, just create if doesn't exist
-        const connection = await mysql.createConnection({
-            host,
-            port,
-            user,
-            password
-        });
-
-        try {
-            await connection.execute(
-                `CREATE DATABASE IF NOT EXISTS \`${dbName}\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
-            );
-            console.log(`Database ${dbName} ready`);
-        } finally {
-            await connection.end();
-        }
     }
 
-    // Create and return the pool
-    const pool = mysql.createPool({
-        host,
-        port,
-        user,
-        password,
-        database: dbName,
-        waitForConnections: true,
-        connectionLimit: 20, // Adjust based on needs
-        queueLimit: 0,
-        enableKeepAlive: true,
-        keepAliveInitialDelay: 0
-    });
+    // Create and open the database
+    const db = new Database(dbPath);
+    console.log(`Database ${dbName} ready at ${dbPath}`);
 
-    return pool;
+    // Enable WAL mode for better concurrency
+    db.pragma('journal_mode = WAL');
+    db.pragma('synchronous = NORMAL');
+
+    return db;
 }
 
 interface PluginDatabaseVersioningOptions {
-    host: string;
-    port: number;
-    user: string;
-    password: string;
+    dbPath: string;
     dbName: string;
     currentVersion: number;
 }
 
-async function handlePluginDatabaseVersioning(options: PluginDatabaseVersioningOptions): Promise<void> {
-    const { host, port, user, password, dbName, currentVersion } = options;
+function handlePluginDatabaseVersioning(options: PluginDatabaseVersioningOptions): void {
+    const { dbPath, dbName, currentVersion } = options;
 
     console.log(`[DB Version Check] Checking database ${dbName} for version ${currentVersion}...`);
 
-    // First connect without database to check if it exists
-    const connection = await mysql.createConnection({
-        host,
-        port,
-        user,
-        password
-    });
+    if (fs.existsSync(dbPath)) {
+        console.log(`[DB Version Check] Database ${dbName} exists, checking version...`);
 
-    try {
-        // Check if database exists
-        const [databases] = await connection.execute<mysql.RowDataPacket[]>(
-            `SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = ?`,
-            [dbName]
-        );
+        let shouldDeleteDb = false;
+        let previousVersion: number | null = null;
 
-        const dbExists = databases.length > 0;
-
-        if (dbExists) {
-            console.log(`[DB Version Check] Database ${dbName} exists, checking version...`);
-            // Database exists, check version
-            let shouldDropDb = false;
-            let previousVersion: number | null = null;
+        try {
+            // Open database to check version
+            const db = new Database(dbPath);
 
             try {
                 // Check if kv_int table exists
-                const [tables] = await connection.execute<mysql.RowDataPacket[]>(
-                    `SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'kv_int'`,
-                    [dbName]
-                );
+                const tableInfo = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='kv_int'").get();
 
-                if (tables.length === 0) {
-                    // No kv_int table, drop database just in case
-                    console.log(`[DB Version Check] Database ${dbName} has no kv_int table, will drop and recreate`);
-                    shouldDropDb = true;
+                if (!tableInfo) {
+                    // No kv_int table, delete database
+                    console.log(`[DB Version Check] Database ${dbName} has no kv_int table, will delete and recreate`);
+                    shouldDeleteDb = true;
                 } else {
-                    // Check stored version - create a new connection to the specific database
-                    const dbConnection = await mysql.createConnection({
-                        host,
-                        port,
-                        user,
-                        password,
-                        database: dbName
-                    });
+                    // Check stored version
+                    const versionRow = db.prepare("SELECT value FROM kv_int WHERE key = ?").get('indexer_version') as { value: number } | undefined;
 
-                    try {
-                        const [rows] = await dbConnection.execute<mysql.RowDataPacket[]>(
-                            `SELECT value FROM kv_int WHERE \`key\` = 'indexer_version'`
-                        );
-
-                        if (rows.length === 0) {
-                            // No version stored, drop database just in case
-                            console.log(`[DB Version Check] Database ${dbName} has no stored version, will drop and recreate`);
-                            shouldDropDb = true;
+                    if (!versionRow) {
+                        // No version stored, delete database
+                        console.log(`[DB Version Check] Database ${dbName} has no stored version, will delete and recreate`);
+                        shouldDeleteDb = true;
+                    } else {
+                        previousVersion = versionRow.value;
+                        if (previousVersion !== currentVersion) {
+                            console.log(`[DB Version Check] Database ${dbName} version changed: v${previousVersion} → v${currentVersion}, will delete and recreate`);
+                            shouldDeleteDb = true;
                         } else {
-                            previousVersion = rows[0]!['value'];
-                            if (previousVersion !== currentVersion) {
-                                console.log(`[DB Version Check] Database ${dbName} version changed: v${previousVersion} → v${currentVersion}, will drop and recreate`);
-                                shouldDropDb = true;
-                            } else {
-                                console.log(`[DB Version Check] Database ${dbName} version unchanged (v${currentVersion}), keeping existing database`);
-                            }
+                            console.log(`[DB Version Check] Database ${dbName} version unchanged (v${currentVersion}), keeping existing database`);
                         }
-                    } finally {
-                        await dbConnection.end();
                     }
                 }
-            } catch (error) {
-                // Error accessing database or table, drop it
-                console.log(`[DB Version Check] Error checking database ${dbName} version, will drop and recreate`);
-                console.error(error);
-                shouldDropDb = true;
+            } finally {
+                db.close();
             }
-
-            if (shouldDropDb) {
-                await connection.execute(`DROP DATABASE IF EXISTS \`${dbName}\``);
-                console.log(`[DB Version Check] Database ${dbName} dropped successfully`);
-            }
-        } else {
-            console.log(`[DB Version Check] Database ${dbName} does not exist, will create new`);
+        } catch (error) {
+            // Error accessing database, delete it
+            console.log(`[DB Version Check] Error checking database ${dbName} version, will delete and recreate`);
+            console.error(error);
+            shouldDeleteDb = true;
         }
 
-        // Create database if it doesn't exist (or was just dropped)
-        await connection.execute(
-            `CREATE DATABASE IF NOT EXISTS \`${dbName}\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
-        );
+        if (shouldDeleteDb) {
+            fs.unlinkSync(dbPath);
+            console.log(`[DB Version Check] Database ${dbName} deleted successfully`);
+        }
+    } else {
+        console.log(`[DB Version Check] Database ${dbName} does not exist, will create new`);
+    }
 
-        // Create kv_int table and store version - create a new connection to the database
-        const dbConnection = await mysql.createConnection({
-            host,
-            port,
-            user,
-            password,
-            database: dbName
-        });
+    // If database was deleted or didn't exist, create kv_int table and store version
+    if (!fs.existsSync(dbPath)) {
+        const db = new Database(dbPath);
 
         try {
-            await dbConnection.execute(`
+            db.exec(`
                 CREATE TABLE IF NOT EXISTS kv_int (
-                    \`key\`   VARCHAR(255) PRIMARY KEY,
-                    \`value\` BIGINT NOT NULL
+                    key   TEXT PRIMARY KEY,
+                    value INTEGER NOT NULL
                 )
             `);
 
             // Store the current version
-            await dbConnection.execute(
-                `INSERT INTO kv_int (\`key\`, \`value\`) VALUES ('indexer_version', ?) ON DUPLICATE KEY UPDATE \`value\` = VALUES(\`value\`)`,
-                [currentVersion]
-            );
+            db.prepare("INSERT OR REPLACE INTO kv_int (key, value) VALUES (?, ?)").run('indexer_version', currentVersion);
 
             console.log(`[DB Version Check] Database ${dbName} is ready with version ${currentVersion}`);
         } finally {
-            await dbConnection.end();
+            db.close();
         }
-    } finally {
-        await connection.end();
     }
 }

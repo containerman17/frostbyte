@@ -5,11 +5,11 @@ import {
     StoredTx
 } from "../blockFetcher/evmTypes";
 import { ChainConfig } from "../config";
-import mysql from "mysql2/promise";
+import sqlite3 from "better-sqlite3";
 
 export interface RegisterRoutesContext {
     getBlocksDbHelper: (evmChainId: number) => Promise<BlocksDBHelper>;
-    getIndexerDbConnection: (evmChainId: number, indexerName: string) => Promise<mysql.Connection>;
+    getIndexerDbConnection: (evmChainId: number, indexerName: string) => Promise<sqlite3.Database>;
     getChainConfig: (evmChainIdOrBlockchainId: number | string) => ChainConfig | undefined;
     getAllChainConfigs: () => ChainConfig[];
 }
@@ -28,13 +28,13 @@ export interface IndexingPlugin {
     filterEvents?: string[]; // if provided, only transactions with these topics will be processed
 
     /** Called once. Create tables here. */
-    initialize: (db: mysql.Connection) => void | Promise<void>;
+    initialize: (db: sqlite3.Database) => void;
 
     handleTxBatch: (
-        db: mysql.Connection,
+        db: sqlite3.Database,
         blocksDb: BlocksDBHelper,
         batch: TxBatch,
-    ) => void | Promise<void>;
+    ) => void;
 }
 
 /** API plugin - provides REST endpoints using data from specified indexer databases */
