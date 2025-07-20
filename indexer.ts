@@ -84,8 +84,10 @@ async function startIndexer(
         if (!hadSomethingToIndex) {
             consecutiveEmptyBatches++;
 
-            if (transactions.maxTxNum > lastIndexedTx) {
-                setIntValue(db, `lastIndexedTx_${name}`, transactions.maxTxNum);
+            // // Check if there are more transactions in the database that we haven't processed yet
+            const totalTxCount = blocksDb.getTxCount();
+            if (totalTxCount > lastIndexedTx) {
+                setIntValue(db, `lastIndexedTx_${name}`, totalTxCount);
             }
 
             // Check if we should exit

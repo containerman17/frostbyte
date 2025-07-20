@@ -277,18 +277,15 @@ export class BlocksDBHelper {
         this.setIntValue('hasDebug', hasDebug ? 1 : 0);
     }
 
-    getTxBatch(greaterThanTxNum: number, limit: number, includeTraces: boolean, filterEvents: string[] | undefined): { txs: StoredTx[], traces: RpcTraceResult[] | undefined, maxTxNum: number } {
+    getTxBatch(greaterThanTxNum: number, limit: number, includeTraces: boolean, filterEvents: string[] | undefined): { txs: StoredTx[], traces: RpcTraceResult[] | undefined } {
         // Ensure safe values to prevent SQL injection
-        const txNumParam = Math.max(0, greaterThanTxNum);
+        const txNumParam = Math.max(-1, greaterThanTxNum);
         let limitParam = Math.min(Math.max(1, limit), 100000);
 
         // When filtering events, hard cap to 1000 to avoid huge IN clauses
         if (filterEvents && filterEvents.length > 0) {
             limitParam = Math.min(limitParam, MAX_ROWS_WITH_FILTER);
         }
-
-        // Get the current maximum tx number (same as tx count since no deletions)
-        const maxTxNum = this.getTxCount();
 
         if (filterEvents && filterEvents.length > 0) {
             // Use the index for efficient filtering
@@ -315,8 +312,7 @@ export class BlocksDBHelper {
             if (txNumRows.length === 0) {
                 return {
                     txs: [],
-                    traces: undefined,
-                    maxTxNum
+                    traces: undefined
                 };
             }
 
@@ -356,8 +352,7 @@ export class BlocksDBHelper {
 
             return {
                 txs,
-                traces: this.hasDebug && includeTraces ? traces : undefined,
-                maxTxNum
+                traces: this.hasDebug && includeTraces ? traces : undefined
             };
         } else {
             // No filtering, use original query
@@ -392,8 +387,7 @@ export class BlocksDBHelper {
 
             return {
                 txs,
-                traces: this.hasDebug && includeTraces ? traces : undefined,
-                maxTxNum
+                traces: this.hasDebug && includeTraces ? traces : undefined
             };
         }
     }
