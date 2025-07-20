@@ -43,3 +43,7 @@ const finish = performance.now();
 console.log(`Batches count: ${batchesCount}`);
 console.log(`Time taken: ${finish - start}ms`);
 
+// Chain id:  HUwWdyoExrb1HgVp5X5sh3AWqhYFnKkfXBfGmGL3qjDsnMoR4
+// Txs:  1004620
+// Batches count: 101
+// Time taken: 8901.959251999999ms
