@@ -179,72 +179,65 @@ function formatBytes(bytes: number): string {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
-async function runExample(): Promise<void> {
-    console.log('SQLite Compression Example with sqlite_zstd_vfs\n');
-    console.log(`Plugin path: ${PLUGIN_PATH}`);
-    console.log(`Number of records: ${NUM_RECORDS}\n`);
+console.log('SQLite Compression Example with sqlite_zstd_vfs\n');
+console.log(`Plugin path: ${PLUGIN_PATH}`);
+console.log(`Number of records: ${NUM_RECORDS}\n`);
 
-    // Clean up any existing databases
+// Clean up any existing databases
+cleanupFiles();
+
+try {
+    // Create both databases
+    createRegularDatabase();
+    createCompressedDatabase();
+
+    // Measure sizes
+    const rawDataSize = calculateRawDataSize();
+    const regularDbSize = getFileSize(REGULAR_DB);
+    const compressedDbSize = getFileSize(COMPRESSED_DB);
+
+    // Calculate compression ratios
+    const dbCompressionRatio = ((regularDbSize - compressedDbSize) / regularDbSize) * 100;
+    const rawCompressionRatio = ((rawDataSize - compressedDbSize) / rawDataSize) * 100;
+
+    // Display results
+    console.log('\n=== COMPRESSION RESULTS ===');
+    console.log(`Raw JSON data size:     ${formatBytes(rawDataSize)}`);
+    console.log(`Regular SQLite DB size: ${formatBytes(regularDbSize)}`);
+    console.log(`Compressed DB size:     ${formatBytes(compressedDbSize)}`);
+    console.log('');
+    console.log(`DB compression ratio:   ${dbCompressionRatio.toFixed(1)}%`);
+    console.log(`Raw data compression:   ${rawCompressionRatio.toFixed(1)}%`);
+    console.log('');
+    console.log(`Space saved vs regular DB: ${formatBytes(regularDbSize - compressedDbSize)}`);
+    console.log(`Space saved vs raw data:   ${formatBytes(rawDataSize - compressedDbSize)}`);
+
+    // Verify data integrity
+    console.log('\n=== DATA VERIFICATION ===');
+    const regularDb = sqlite3(REGULAR_DB, { readonly: true });
+    const regularCount = regularDb.prepare('SELECT COUNT(*) as count FROM hello_world').get() as { count: number };
+    regularDb.close();
+
+    const memDb = sqlite3(':memory:');
+    memDb.loadExtension(PLUGIN_PATH);
+    memDb.close();
+
+    const compressedUri = `file:${COMPRESSED_DB}?vfs=zstd&mode=ro`;
+    const compressedDb = sqlite3(compressedUri, { readonly: true });
+    compressedDb.loadExtension(PLUGIN_PATH);
+    const compressedCount = compressedDb.prepare('SELECT COUNT(*) as count FROM hello_world').get() as { count: number };
+    compressedDb.close();
+
+    console.log(`Regular DB record count:    ${regularCount.count}`);
+    console.log(`Compressed DB record count: ${compressedCount.count}`);
+    console.log(`Data integrity: ${regularCount.count === compressedCount.count ? 'PASS' : 'FAIL'}`);
+
+} catch (error) {
+    console.error('Error during example execution:', error);
+    throw error;
+} finally {
+    // Cleanup
+    console.log('\nCleaning up temporary files...');
     cleanupFiles();
-
-    try {
-        // Create both databases
-        createRegularDatabase();
-        createCompressedDatabase();
-
-        // Measure sizes
-        const rawDataSize = calculateRawDataSize();
-        const regularDbSize = getFileSize(REGULAR_DB);
-        const compressedDbSize = getFileSize(COMPRESSED_DB);
-
-        // Calculate compression ratios
-        const dbCompressionRatio = ((regularDbSize - compressedDbSize) / regularDbSize) * 100;
-        const rawCompressionRatio = ((rawDataSize - compressedDbSize) / rawDataSize) * 100;
-
-        // Display results
-        console.log('\n=== COMPRESSION RESULTS ===');
-        console.log(`Raw JSON data size:     ${formatBytes(rawDataSize)}`);
-        console.log(`Regular SQLite DB size: ${formatBytes(regularDbSize)}`);
-        console.log(`Compressed DB size:     ${formatBytes(compressedDbSize)}`);
-        console.log('');
-        console.log(`DB compression ratio:   ${dbCompressionRatio.toFixed(1)}%`);
-        console.log(`Raw data compression:   ${rawCompressionRatio.toFixed(1)}%`);
-        console.log('');
-        console.log(`Space saved vs regular DB: ${formatBytes(regularDbSize - compressedDbSize)}`);
-        console.log(`Space saved vs raw data:   ${formatBytes(rawDataSize - compressedDbSize)}`);
-
-        // Verify data integrity
-        console.log('\n=== DATA VERIFICATION ===');
-        const regularDb = sqlite3(REGULAR_DB, { readonly: true });
-        const regularCount = regularDb.prepare('SELECT COUNT(*) as count FROM hello_world').get() as { count: number };
-        regularDb.close();
-
-        const memDb = sqlite3(':memory:');
-        memDb.loadExtension(PLUGIN_PATH);
-        memDb.close();
-
-        const compressedUri = `file:${COMPRESSED_DB}?vfs=zstd&mode=ro`;
-        const compressedDb = sqlite3(compressedUri, { readonly: true });
-        compressedDb.loadExtension(PLUGIN_PATH);
-        const compressedCount = compressedDb.prepare('SELECT COUNT(*) as count FROM hello_world').get() as { count: number };
-        compressedDb.close();
-
-        console.log(`Regular DB record count:    ${regularCount.count}`);
-        console.log(`Compressed DB record count: ${compressedCount.count}`);
-        console.log(`Data integrity: ${regularCount.count === compressedCount.count ? 'PASS' : 'FAIL'}`);
-
-    } catch (error) {
-        console.error('Error during example execution:', error);
-        throw error;
-    } finally {
-        // Cleanup
-        console.log('\nCleaning up temporary files...');
-        cleanupFiles();
-    }
 }
 
-// Export the function for manual execution
-export { runExample };
-
-// Example usage (commented out since user requested not to run):
-// runExample().catch(console.error);
