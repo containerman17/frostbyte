@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import { getCurrentChainConfig, getSqliteDb, getPluginDirs } from './config.js';
 import sqlite3 from 'better-sqlite3';
 
-const TXS_PER_LOOP = 10000;
+const TXS_PER_LOOP = 100000;
 const SLEEP_TIME = 3000;
 
 export interface IndexerOptions {
@@ -45,6 +45,7 @@ async function startIndexer(
         indexerName: name,
         pluginVersion: version,
         chainId: chainId,
+        readonly: false,
     });
 
     // kv_int table is already created by getSqliteDb, no need to call initializeIndexingDB
@@ -133,6 +134,7 @@ export async function startAllIndexers(options: IndexerOptions): Promise<void> {
             debugEnabled: options.debugEnabled,
             type: "blocks",
             chainId: options.chainId,
+            readonly: true,
         }),
         true,
         options.debugEnabled
@@ -167,6 +169,7 @@ export async function startSingleIndexer(options: SingleIndexerOptions): Promise
             debugEnabled: options.debugEnabled,
             type: "blocks",
             chainId: options.chainId,
+            readonly: true,
         }),
         true,
         options.debugEnabled

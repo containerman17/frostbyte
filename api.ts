@@ -138,6 +138,7 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
             debugEnabled: chainConfig.rpcConfig.rpcSupportsDebug,
             type: "blocks",
             chainId: chainConfig.blockchainId,
+            readonly: true,
         });
         const blocksDb = new BlocksDBHelper(db, true, chainConfig.rpcConfig.rpcSupportsDebug);
         blocksDbCache.set(evmChainId, blocksDb);
@@ -160,6 +161,7 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
             indexerName: indexerName,
             chainId: chainConfig.blockchainId,
             pluginVersion: indexerVersion,
+            readonly: true,
         });
         return db;
     }

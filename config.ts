@@ -81,6 +81,7 @@ type CreateDbConfig = {
     indexerName?: string;
     pluginVersion?: number;
     chainId?: string;
+    readonly: boolean;
 }
 
 export function getSqliteDb(config: CreateDbConfig): Database.Database {
@@ -143,12 +144,26 @@ function createSqliteDb(config: CreateDbConfig & { chainId: string }): Database.
     }
 
     // Create and open the database
-    const db = new Database(dbPath);
-    console.log(`Database ${dbName} ready at ${dbPath}`);
+    const db = new Database(dbPath, { readonly: config.readonly });
+    console.log(`Database ${dbName} ready at ${dbPath} (${config.readonly ? 'readonly' : 'read-write'})`);
 
     // Enable WAL mode for better concurrency
     db.pragma('journal_mode = WAL');
-    db.pragma('synchronous = NORMAL');
+
+    if (config.readonly) {
+        // Read-only optimizations
+        db.pragma('query_only = ON');
+        db.pragma('cache_size = -32768'); // 32MB cache per database
+        db.pragma('mmap_size = 2199023255552'); // 2TB mmap
+        db.pragma('temp_store = MEMORY');
+    } else {
+        // Read-write optimizations
+        db.pragma('synchronous = NORMAL');
+        db.pragma('cache_size = -32768'); // 32MB cache per database
+        db.pragma('mmap_size = 2199023255552'); // 2TB mmap
+        db.pragma('temp_store = MEMORY');
+        db.pragma('optimize'); // Run optimize on database connection
+    }
 
     return db;
 }

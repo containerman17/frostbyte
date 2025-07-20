@@ -1,7 +1,7 @@
 import sqlite3 from 'better-sqlite3';
 import { RpcBlock, RpcBlockTransaction, RpcTxReceipt, RpcTraceResult, StoredTx, StoredRpcTxReceipt, CONTRACT_CREATION_TOPIC, RpcTraceCall } from './evmTypes.js';
 import { StoredBlock } from './BatchRpc.js';
-const MAX_ROWS_WITH_FILTER = 1000;
+const MAX_ROWS_WITH_FILTER = 10000;
 export class BlocksDBHelper {
     private db: sqlite3.Database;
     private isReadonly: boolean;
@@ -46,6 +46,7 @@ export class BlocksDBHelper {
     }
 
     storeBlocks(batch: StoredBlock[]): void {
+        const start = performance.now();
         if (this.isReadonly) throw new Error('BlocksDBHelper is readonly');
         if (batch.length === 0) return;
 
@@ -81,6 +82,11 @@ export class BlocksDBHelper {
         });
 
         storeBlocksTransaction();
+
+        const elapsed = performance.now() - start;
+        if (elapsed > 100) {
+            console.log(`SQLite storeBlocks took ${elapsed}ms`);
+        }
     }
 
     setBlockchainLatestBlockNum(blockNumber: number): void {

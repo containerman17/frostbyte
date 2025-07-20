@@ -87,6 +87,7 @@ if (cluster.isPrimary) {
             debugEnabled: chainConfig.rpcConfig.rpcSupportsDebug,
             type: "blocks",
             chainId: chainConfig.blockchainId,
+            readonly: false,
         });
         const blocksDb = new BlocksDBHelper(db, false, chainConfig.rpcConfig.rpcSupportsDebug);
         const batchRpc = new BatchRpc(chainConfig.rpcConfig);
@@ -101,6 +102,7 @@ if (cluster.isPrimary) {
             debugEnabled: chainConfig.rpcConfig.rpcSupportsDebug,
             type: "blocks",
             chainId: chainConfig.blockchainId,
+            readonly: true,
         });
 
         // Each indexer worker must have a specific indexer name
