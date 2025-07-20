@@ -2,6 +2,17 @@
 
 A high-performance Avalanche L1 indexer kit with TypeScript plugin support.
 
+## Features
+
+- **High Performance**: Fast SQLite-based indexing with optimized concurrent
+  processing
+- **Plugin System**: Write custom indexers and APIs in TypeScript
+- **Multi-Chain Support**: Index multiple blockchain networks simultaneously
+- **Database Compression**: Optional sqlite-zstd compression for 60-80% space
+  savings
+- **RESTful APIs**: Auto-generated Swagger documentation and built-in endpoints
+- **Docker Support**: Ready-to-use container images
+
 ## Installation
 
 ```bash
@@ -20,6 +31,47 @@ frostbyte init --name my-api --type api
 # Run the indexer and API server
 frostbyte run --plugins-dir ./plugins --data-dir ./data
 ```
+
+## Database Compression
+
+FrostByte supports transparent database compression using the sqlite-zstd
+extension, which can reduce database size by 60-80% with minimal performance
+impact.
+
+### Setup Compression
+
+1. **Install sqlite-zstd extension:**
+   - **Linux**: Download `libsqlite_zstd.so` from
+     [sqlite-zstd releases](https://github.com/phiresky/sqlite-zstd/releases)
+   - **macOS**: Download `libsqlite_zstd.dylib` from
+     [sqlite-zstd releases](https://github.com/phiresky/sqlite-zstd/releases)
+   - **Windows**: Download `libsqlite_zstd.dll` from
+     [sqlite-zstd releases](https://github.com/phiresky/sqlite-zstd/releases)
+
+2. **Optional: Set extension path if not in system path:**
+
+```bash
+export SQLITE_ZSTD_EXTENSION_PATH=/path/to/libsqlite_zstd.so
+```
+
+That's it! Compression is now automatic.
+
+### How It Works
+
+- **Automatic Setup**: Compression is automatically enabled on transaction data
+  when tables are created
+- **Background Maintenance**: Compression runs in the background 1 second after
+  each batch of blocks
+- **Transparent**: Works transparently with all queries - no code changes needed
+- **Maintenance-Free**: No manual maintenance required
+
+### Performance Impact
+
+- **Storage**: 60-80% reduction in database size
+- **Read Performance**: Minimal impact or slight improvement (less disk I/O)
+- **Write Performance**: Small overhead during compression maintenance
+- **Background Processing**: Maintenance runs with 50% database load to allow
+  concurrent operations
 
 ## Docker
 

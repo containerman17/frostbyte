@@ -64,6 +64,12 @@ export async function startFetchingLoop(blockDB: BlocksDBHelper, batchRpc: Batch
             const blocksPerSecond = blocks.length / (end - start) * 1000;
             const secondsLeft = blocksLeft / blocksPerSecond;
             console.log(`[${chainName}] Fetched ${blocks.length} blocks in ${Math.round(end - start)}ms, that's ~${Math.round(blocksPerSecond)} blocks/s, ${blocksLeft.toLocaleString()} blocks left, ~${formatSeconds(secondsLeft)} left`);
+
+            // Run compression maintenance 1 second after storing blocks
+            setTimeout(() => {
+                blockDB.runCompressionMaintenance();
+            }, 1000);
+
         } catch (error) {
             console.error(`[${chainName}] Error fetching/storing blocks ${startBlock}-${endBlock}:`, error);
             // Re-fetch the actual last stored block from database after error

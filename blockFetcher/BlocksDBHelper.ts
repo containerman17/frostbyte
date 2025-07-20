@@ -267,6 +267,68 @@ export class BlocksDBHelper {
         for (const query of queries) {
             this.db.exec(query);
         }
+
+        // Setup compression on txs table after creation
+        this.setupCompression();
+    }
+
+    private setupCompression(): void {
+        try {
+            // Test if compression extension is available
+            this.db.prepare("SELECT zstd_compress('test', 3) as compressed").get();
+
+            // Enable compression on txs.data column (transaction data)
+            const dataConfig = {
+                table: 'txs',
+                column: 'data',
+                compression_level: 3,
+                dict_chooser: "'tx_data'"
+            };
+
+            this.db.exec(`
+                SELECT zstd_enable_transparent('${JSON.stringify(dataConfig).replace(/'/g, "''")}')
+            `);
+
+            console.log('[Compression] Enabled compression on txs.data');
+
+            // Enable compression on txs.traces column (trace data)
+            try {
+                const tracesConfig = {
+                    table: 'txs',
+                    column: 'traces',
+                    compression_level: 3,
+                    dict_chooser: "'tx_traces'"
+                };
+
+                this.db.exec(`
+                    SELECT zstd_enable_transparent('${JSON.stringify(tracesConfig).replace(/'/g, "''")}')
+                `);
+
+                console.log('[Compression] Enabled compression on txs.traces');
+            } catch (tracesError) {
+                throw new Error(`Failed to enable compression on txs.traces: ${tracesError}`);
+            }
+
+        } catch (error) {
+            throw new Error(`Failed to setup compression: ${error}`);
+        }
+    }
+
+    // Add compression maintenance method
+    runCompressionMaintenance(): void {
+        try {
+            // Run incremental maintenance for 1 second with 50% database load
+            const result = this.db.prepare("SELECT zstd_incremental_maintenance(1.0, 0.5) as has_more_work").get() as { has_more_work: number } | undefined;
+
+            if (result?.has_more_work) {
+                // Only log occasionally to avoid spam
+                if (Math.random() < 0.01) { // 1% chance
+                    console.log('[Compression] Background compression maintenance running...');
+                }
+            }
+        } catch (error) {
+            throw new Error(`Compression maintenance failed: ${error}`);
+        }
     }
 
     getHasDebug(): number {

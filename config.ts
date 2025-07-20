@@ -101,6 +101,15 @@ export function getSqliteDb(config: CreateDbConfig): Database.Database {
     return dbCache.get(dbKey)!;
 }
 
+function loadCompressionExtension(db: Database.Database): void {
+    try {
+        const extensionPath = "sqlite_zstd-v0.3.5-arm-unknown-linux-gnueabihf/libsqlite_zstd"
+        db.loadExtension(extensionPath);
+    } catch (error) {
+        throw new Error(`Failed to load sqlite-zstd extension: ${error}`);
+    }
+}
+
 function createSqliteDb(config: CreateDbConfig & { chainId: string }): Database.Database {
     if (config.type === "plugin" && typeof config.pluginVersion !== "number") {
         throw new Error("Plugin version is required for plugin");
@@ -147,6 +156,9 @@ function createSqliteDb(config: CreateDbConfig & { chainId: string }): Database.
     const db = new Database(dbPath, { readonly: config.readonly });
     console.log(`Database ${dbName} ready at ${dbPath} (${config.readonly ? 'readonly' : 'read-write'})`);
 
+    // Load compression extension if enabled
+    loadCompressionExtension(db);
+
     // Enable WAL mode for better concurrency
     db.pragma('journal_mode = WAL');
 
@@ -165,7 +177,46 @@ function createSqliteDb(config: CreateDbConfig & { chainId: string }): Database.
         db.pragma('optimize'); // Run optimize on database connection
     }
 
+    // Compression is automatically set up in BlocksDBHelper for blocks databases
+    // Plugin databases can use enablePluginTableCompression() utility if needed
+
     return db;
+}
+
+
+
+// Export compression utilities for plugins to use
+export function enablePluginTableCompression(
+    db: Database.Database,
+    tableName: string,
+    columnName: string,
+    compressionLevel: number = 3
+): void {
+    try {
+        const compressionConfig = {
+            table: tableName,
+            column: columnName,
+            compression_level: compressionLevel,
+            dict_chooser: `'${tableName}_${columnName}'`
+        };
+
+        db.exec(`
+            SELECT zstd_enable_transparent('${JSON.stringify(compressionConfig).replace(/'/g, "''")}')
+        `);
+
+        console.log(`[Compression] Enabled compression on ${tableName}.${columnName}`);
+    } catch (error) {
+        throw new Error(`Failed to enable compression on ${tableName}.${columnName}: ${error}`);
+    }
+}
+
+export function runCompressionMaintenance(db: Database.Database): void {
+    try {
+        // Run quick maintenance (1 second)
+        db.prepare("SELECT zstd_incremental_maintenance(1.0, 0.5)").get();
+    } catch (error) {
+        throw new Error(`Compression maintenance failed: ${error}`);
+    }
 }
 
 interface PluginDatabaseVersioningOptions {
