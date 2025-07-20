@@ -45,20 +45,20 @@ try {
     // Databases don't exist, that's fine
 }
 
-import rocksdb from '@nxtedition/rocksdb'
 
 // Create LevelDB
 const db = new Level<Buffer, string>('benchmark-db', {
-    db: rocksdb,
+    // db: rocksdb,
     keyEncoding: 'buffer',
     valueEncoding: 'utf8'
 })
 
 // Create SQLite database
 const sqlite = sqlite3('benchmark.sqlite')
-sqlite.pragma('journal_mode = WAL')
-sqlite.pragma('synchronous = NORMAL')
-sqlite.pragma('cache_size = 1000000')
+sqlite.pragma('journal_mode = OFF')         // No journaling, fastest
+sqlite.pragma('synchronous = OFF')          // No fsync, fastest
+sqlite.pragma('locking_mode = EXCLUSIVE')   // Single-process, less locking overhead
+sqlite.pragma('cache_size = 100000')        // Lower cache if memory is tight
 sqlite.pragma('temp_store = memory')
 sqlite.exec(`
     CREATE TABLE transactions (
