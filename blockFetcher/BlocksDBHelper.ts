@@ -1,73 +1,51 @@
-import mysql from 'mysql2/promise';
+import sqlite3 from 'better-sqlite3';
 import { RpcBlock, RpcBlockTransaction, RpcTxReceipt, RpcTraceResult, StoredTx, StoredRpcTxReceipt, CONTRACT_CREATION_TOPIC, RpcTraceCall } from './evmTypes.js';
 import { StoredBlock } from './BatchRpc.js';
 const MAX_ROWS_WITH_FILTER = 1000;
 export class BlocksDBHelper {
-    private pool: mysql.Pool;
+    private db: sqlite3.Database;
     private isReadonly: boolean;
     private hasDebug: boolean;
+    private statementCache = new Map<string, sqlite3.Statement>();
 
-    private constructor(pool: mysql.Pool, isReadonly: boolean, hasDebug: boolean) {
-        this.pool = pool;
+    constructor(db: sqlite3.Database, isReadonly: boolean, hasDebug: boolean) {
+        this.db = db;
         this.isReadonly = isReadonly;
         this.hasDebug = hasDebug;
-    }
 
-    static async createFromPool(pool: mysql.Pool, options: { isReadonly: boolean, hasDebug: boolean }): Promise<BlocksDBHelper> {
-        const blockDB = new BlocksDBHelper(pool, options.isReadonly, options.hasDebug);
-
-        if (!options.isReadonly) {
-            await blockDB.initSchema();
+        if (!isReadonly) {
+            this.initSchema();
         }
 
-        // Check and validate hasDebug setting
-        try {
-            const storedHasDebug = await blockDB.getHasDebug();
-            console.log('storedHasDebug', storedHasDebug, 'hasDebug', options.hasDebug);
-            if (storedHasDebug === -1) {
-                // Never set before, set it now
-                if (!options.isReadonly) {
-                    await blockDB.setHasDebug(options.hasDebug);
-                }
-            } else {
-                // Already set, must match
-                const storedBool = storedHasDebug === 1;
-                if (storedBool !== options.hasDebug) {
-                    throw new Error(`Database hasDebug mismatch: stored=${storedBool}, provided=${options.hasDebug}`);
-                }
-            }
-        } catch (err) {
-            console.error('Failed to check hasDebug:', err);
-            throw err;
+        const storedHasDebug = this.getHasDebug()
+        if (storedHasDebug === -1) {
+            this.setHasDebug(hasDebug);
+        } else if (storedHasDebug !== (hasDebug ? 1 : 0)) {
+            throw new Error(`Database hasDebug mismatch: stored=${storedHasDebug}, provided=${hasDebug}`);
         }
-
-        return blockDB;
     }
 
-    async getEvmChainId(): Promise<number> {
-        return await this.getIntValue('evm_chain_id', -1);
+    getEvmChainId(): number {
+        return this.getIntValue('evm_chain_id', -1);
     }
 
-    async setEvmChainId(chainId: number): Promise<void> {
-        await this.setIntValue('evm_chain_id', chainId);
+    setEvmChainId(chainId: number): void {
+        this.setIntValue('evm_chain_id', chainId);
     }
 
-    async getLastStoredBlockNumber(): Promise<number> {
-        const [rows] = await this.pool.execute<mysql.RowDataPacket[]>(
-            'SELECT MAX(number) as max_number FROM blocks'
-        );
-        return rows[0]?.['max_number'] ?? -1;
+    getLastStoredBlockNumber(): number {
+        return this.getIntValue('last_stored_block_number', -1);
     }
 
-    async getTxCount(): Promise<number> {
-        return await this.getIntValue('tx_count', 0);
+    getTxCount(): number {
+        return this.getIntValue('tx_count', 0);
     }
 
-    async storeBlocks(batch: StoredBlock[]): Promise<void> {
+    storeBlocks(batch: StoredBlock[]): void {
         if (this.isReadonly) throw new Error('BlocksDBHelper is readonly');
         if (batch.length === 0) return;
 
-        let lastStoredBlockNum = await this.getLastStoredBlockNumber();
+        let lastStoredBlockNum = this.getLastStoredBlockNumber();
         let totalTxCount = 0;
 
         // Calculate total transactions in the batch
@@ -75,48 +53,43 @@ export class BlocksDBHelper {
             totalTxCount += block.block.transactions.length;
         }
 
-        const connection = await this.pool.getConnection();
-        try {
-            await connection.beginTransaction();
-
+        // Use SQLite transaction
+        const storeBlocksTransaction = this.db.transaction(() => {
             for (let i = 0; i < batch.length; i++) {
                 const storedBlock = batch[i]!;
                 if (Number(storedBlock.block.number) !== lastStoredBlockNum + 1) {
                     throw new Error(`Batch not sorted or has gaps: expected ${lastStoredBlockNum + 1}, got ${Number(storedBlock.block.number)}`);
                 }
-                await this.storeBlock(storedBlock, connection);
+                this.storeBlock(storedBlock);
                 lastStoredBlockNum++;
             }
 
             // Update the transaction count once for the entire batch
             if (totalTxCount > 0) {
-                const currentCount = await this.getTxCount();
-                await this.setTxCountWithConnection(currentCount + totalTxCount, connection);
+                const currentCount = this.getTxCount();
+                this.setTxCount(currentCount + totalTxCount);
             }
+        });
 
-            await connection.commit();
-        } catch (error) {
-            await connection.rollback();
-            throw error;
-        } finally {
-            connection.release();
-        }
+        storeBlocksTransaction();
     }
 
-    async setBlockchainLatestBlockNum(blockNumber: number): Promise<void> {
+    setBlockchainLatestBlockNum(blockNumber: number): void {
         if (this.isReadonly) throw new Error('BlocksDBHelper is readonly');
-        await this.setIntValue('blockchain_latest_block', blockNumber);
+        this.setIntValue('blockchain_latest_block', blockNumber);
     }
 
-    async getBlockchainLatestBlockNum(): Promise<number> {
-        return await this.getIntValue('blockchain_latest_block', -1);
+    getBlockchainLatestBlockNum(): number {
+        return this.getIntValue('blockchain_latest_block', -1);
     }
 
-    async close(): Promise<void> {
-        await this.pool.end();
+    close(): void {
+        // Clear cached statements (better-sqlite3 handles cleanup automatically)
+        this.statementCache.clear();
+        this.db.close();
     }
 
-    private async storeBlock(storedBlock: StoredBlock, connection: mysql.PoolConnection): Promise<void> {
+    private storeBlock(storedBlock: StoredBlock): void {
         // Validate hasDebug flag vs traces presence
         if (this.hasDebug && storedBlock.traces === undefined) {
             throw new Error('hasDebug is true but StoredBlock.traces is undefined');
@@ -134,16 +107,24 @@ export class BlocksDBHelper {
         delete (blockWithoutTxs as any).transactions;
         delete (blockWithoutTxs as any).logsBloom;
 
-        // Store block data as JSON (RocksDB handles compression)
+        // Store block data as JSON
         const blockData = JSON.stringify(blockWithoutTxs);
 
         // Extract block hash (remove '0x' prefix) and take first 5 bytes
         const blockHash = storedBlock.block.hash.slice(2);
         const blockHashPrefix = Buffer.from(blockHash, 'hex').slice(0, 5);
 
-        await connection.execute(
-            'INSERT INTO blocks (number, hash, data) VALUES (?, ?, ?)',
-            [blockNumber, blockHashPrefix, blockData]
+        const insertBlock = this.db.prepare(
+            'INSERT INTO blocks (number, hash, data) VALUES (?, ?, ?)'
+        );
+        insertBlock.run(blockNumber, blockHashPrefix, blockData);
+
+        // Prepare statements for transaction operations
+        const insertTx = this.db.prepare(
+            'INSERT INTO txs (hash, block_num, data, traces) VALUES (?, ?, ?, ?)'
+        );
+        const insertTopic = this.db.prepare(
+            'INSERT INTO tx_topics (tx_num, topic_hash) VALUES (?, ?)'
         );
 
         // Store transactions with their receipts and traces
@@ -156,8 +137,7 @@ export class BlocksDBHelper {
             const receiptWithoutBloom: StoredRpcTxReceipt = { ...receipt };
             delete (receiptWithoutBloom as any).logsBloom;
 
-            const txData: StoredTx = {
-                txNum: 0, // Will be set by auto-increment
+            const txData = {
                 tx: tx,
                 receipt: receiptWithoutBloom,
                 blockTs: Number(storedBlock.block.timestamp)
@@ -180,21 +160,8 @@ export class BlocksDBHelper {
                 traceDataJson = JSON.stringify(trace);
             }
 
-            const [insertResult] = await connection.execute<mysql.ResultSetHeader>(
-                'INSERT INTO txs (hash, block_num, data, traces) VALUES (?, ?, ?, ?)',
-                [txHashPrefix, blockNumber, txDataJson, traceDataJson]
-            );
-
-            const txNum = insertResult.insertId;
-
-            // Update the stored transaction data with the actual tx_num
-            txData.txNum = txNum;
-            const updatedTxDataJson = JSON.stringify(txData);
-
-            await connection.execute(
-                'UPDATE txs SET data = ? WHERE tx_num = ?',
-                [updatedTxDataJson, txNum]
-            );
+            const insertResult = insertTx.run(txHashPrefix, blockNumber, txDataJson, traceDataJson);
+            const txNum = insertResult.lastInsertRowid as number;
 
             // Check if this transaction created a contract
             let isContractCreation = false;
@@ -219,10 +186,7 @@ export class BlocksDBHelper {
             // If contract creation detected, add the special topic
             if (isContractCreation) {
                 const contractCreationTopicPrefix = Buffer.from(CONTRACT_CREATION_TOPIC.slice(2), 'hex').slice(0, 5);
-                await connection.execute(
-                    'INSERT INTO tx_topics (tx_num, topic_hash) VALUES (?, ?)',
-                    [txNum, contractCreationTopicPrefix]
-                );
+                insertTopic.run(txNum, contractCreationTopicPrefix);
             }
 
             // Index event topics
@@ -238,76 +202,67 @@ export class BlocksDBHelper {
                     const topicHashPrefix = Buffer.from(topic.slice(2), 'hex').slice(0, 5);
 
                     // Insert tx_topics entry
-                    await connection.execute(
-                        'INSERT INTO tx_topics (tx_num, topic_hash) VALUES (?, ?)',
-                        [txNum, topicHashPrefix]
-                    );
+                    insertTopic.run(txNum, topicHashPrefix);
                 }
             }
         }
     }
 
-    private async setTxCountWithConnection(count: number, connection: mysql.PoolConnection): Promise<void> {
-        await this.setIntValueWithConnection('tx_count', count, connection);
+    private setTxCount(count: number): void {
+        this.setIntValue('tx_count', count);
     }
 
-    private async initSchema(): Promise<void> {
+    private initSchema(): void {
+        // SQLite doesn't have ENGINE=ROCKSDB, using standard SQLite tables
         const queries = [
             `CREATE TABLE IF NOT EXISTS blocks (
-                number INT UNSIGNED PRIMARY KEY,
-                hash BINARY(5) NOT NULL,
-                data LONGTEXT NOT NULL,
-                INDEX idx_hash (hash)
-            ) ENGINE=ROCKSDB`,
+                number INTEGER PRIMARY KEY,
+                hash BLOB NOT NULL,
+                data TEXT NOT NULL
+            )`,
+            `CREATE INDEX IF NOT EXISTS idx_blocks_hash ON blocks(hash)`,
 
             `CREATE TABLE IF NOT EXISTS txs (
-                tx_num INT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
-                hash BINARY(5) NOT NULL,
-                block_num INT UNSIGNED NOT NULL,
-                data LONGTEXT NOT NULL,
-                traces LONGTEXT,
-                INDEX idx_hash (hash),
-                INDEX idx_block_num (block_num)
-            ) ENGINE=ROCKSDB`,
+                tx_num INTEGER PRIMARY KEY AUTOINCREMENT,
+                hash BLOB NOT NULL,
+                block_num INTEGER NOT NULL,
+                data TEXT NOT NULL,
+                traces TEXT
+            )`,
+            `CREATE INDEX IF NOT EXISTS idx_txs_hash ON txs(hash)`,
+            `CREATE INDEX IF NOT EXISTS idx_txs_block_num ON txs(block_num)`,
 
             `CREATE TABLE IF NOT EXISTS kv_int (
-                \`key\` VARCHAR(255) PRIMARY KEY,
-                value BIGINT NOT NULL
-            ) ENGINE=ROCKSDB`,
+                key TEXT PRIMARY KEY,
+                value INTEGER NOT NULL
+            )`,
 
             `CREATE TABLE IF NOT EXISTS kv_string (
-                \`key\` VARCHAR(255) PRIMARY KEY,
+                key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
-            ) ENGINE=ROCKSDB`,
+            )`,
 
             `CREATE TABLE IF NOT EXISTS tx_topics (
-                tx_num INT UNSIGNED NOT NULL,
-                topic_hash BINARY(5) NOT NULL,
-                INDEX idx_topic_hash_txnum (topic_hash, tx_num)
-            ) ENGINE=ROCKSDB`
+                tx_num INTEGER NOT NULL,
+                topic_hash BLOB NOT NULL
+            )`,
+            `CREATE INDEX IF NOT EXISTS idx_tx_topics_topic_hash_txnum ON tx_topics(topic_hash, tx_num)`
         ];
 
         for (const query of queries) {
-            try {
-                await this.pool.execute(query);
-            } catch (error: any) {
-                // Ignore errors if tables already exist
-                if (!error.message.includes('already exists')) {
-                    throw error;
-                }
-            }
+            this.db.exec(query);
         }
     }
 
-    async getHasDebug(): Promise<number> {
-        return await this.getIntValue('hasDebug', -1);
+    getHasDebug(): number {
+        return this.getIntValue('hasDebug', -1);
     }
 
-    async setHasDebug(hasDebug: boolean): Promise<void> {
-        await this.setIntValue('hasDebug', hasDebug ? 1 : 0);
+    setHasDebug(hasDebug: boolean): void {
+        this.setIntValue('hasDebug', hasDebug ? 1 : 0);
     }
 
-    async getTxBatch(greaterThanTxNum: number, limit: number, includeTraces: boolean, filterEvents: string[] | undefined): Promise<{ txs: StoredTx[], traces: RpcTraceResult[] | undefined, maxTxNum: number }> {
+    getTxBatch(greaterThanTxNum: number, limit: number, includeTraces: boolean, filterEvents: string[] | undefined): { txs: StoredTx[], traces: RpcTraceResult[] | undefined, maxTxNum: number } {
         // Ensure safe values to prevent SQL injection
         const txNumParam = Math.max(0, greaterThanTxNum);
         let limitParam = Math.min(Math.max(1, limit), 100000);
@@ -317,14 +272,8 @@ export class BlocksDBHelper {
             limitParam = Math.min(limitParam, MAX_ROWS_WITH_FILTER);
         }
 
-        let query: string;
-
-        // Get the current maximum tx number to help callers skip expensive
-        // queries when no more results are available
-        const [maxRows] = await this.pool.query<mysql.RowDataPacket[]>(
-            'SELECT MAX(tx_num) AS max_tx_num FROM txs'
-        );
-        const maxTxNum = maxRows[0]?.['max_tx_num'] ?? -1;
+        // Get the current maximum tx number (same as tx count since no deletions)
+        const maxTxNum = this.getTxCount();
 
         if (filterEvents && filterEvents.length > 0) {
             // Use the index for efficient filtering
@@ -336,15 +285,16 @@ export class BlocksDBHelper {
             const txNumQuery = `SELECT DISTINCT tt.tx_num 
                                FROM tx_topics tt 
                                WHERE tt.topic_hash IN (${placeholders}) 
-                               AND tt.tx_num > ${txNumParam} 
+                               AND tt.tx_num > ? 
                                ORDER BY tt.tx_num ASC 
-                               LIMIT ${limitParam}`;
+                               LIMIT ?`;
 
-            const mysqlGetStarted = performance.now();
-            const [txNumRows] = await this.pool.query<mysql.RowDataPacket[]>(txNumQuery, topicHashPrefixes);
-            const mysqlGetEnded = performance.now();
-            if ((mysqlGetEnded - mysqlGetStarted) > 100) {
-                console.log(`MySQL tx_num query took ${mysqlGetEnded - mysqlGetStarted}ms`);
+            const startTime = performance.now();
+            const txNumStmt = this.db.prepare(txNumQuery);
+            const txNumRows = txNumStmt.all(...topicHashPrefixes, txNumParam, limitParam) as any[];
+            const elapsed = performance.now() - startTime;
+            if (elapsed > 100) {
+                console.log(`SQLite tx_num query took ${elapsed}ms`);
             }
 
             if (txNumRows.length === 0) {
@@ -356,7 +306,7 @@ export class BlocksDBHelper {
             }
 
             // Extract tx_nums
-            const txNums = txNumRows.map(row => row['tx_num']);
+            const txNums = txNumRows.map(row => row.tx_num);
 
             // Second query: Fetch the actual data for these tx_nums
             const txNumPlaceholders = txNums.map(() => '?').join(',');
@@ -364,22 +314,27 @@ export class BlocksDBHelper {
                 ? `SELECT tx_num, data, traces FROM txs WHERE tx_num IN (${txNumPlaceholders}) ORDER BY tx_num ASC`
                 : `SELECT tx_num, data FROM txs WHERE tx_num IN (${txNumPlaceholders}) ORDER BY tx_num ASC`;
 
-            const dataQueryStarted = performance.now();
-            const [dataRows] = await this.pool.query<mysql.RowDataPacket[]>(dataQuery, txNums);
-            const dataQueryEnded = performance.now();
-            if ((dataQueryEnded - dataQueryStarted) > 100) {
-                console.log(`MySQL data query took ${dataQueryEnded - dataQueryStarted}ms`);
+            const dataStartTime = performance.now();
+            const dataStmt = this.db.prepare(dataQuery);
+            const dataRows = dataStmt.all(...txNums) as any[];
+            const dataElapsed = performance.now() - dataStartTime;
+            if (dataElapsed > 100) {
+                console.log(`SQLite data query took ${dataElapsed}ms`);
             }
 
             const txs: StoredTx[] = [];
             const traces: RpcTraceResult[] = [];
 
             for (const row of dataRows) {
-                const storedTx = JSON.parse(row['data']) as StoredTx;
+                const txData = JSON.parse(row.data);
+                const storedTx: StoredTx = {
+                    txNum: row.tx_num,
+                    ...txData
+                };
                 txs.push(storedTx);
 
-                if (this.hasDebug && includeTraces && row['traces']) {
-                    const trace = JSON.parse(row['traces']) as RpcTraceResult;
+                if (this.hasDebug && includeTraces && row.traces) {
+                    const trace = JSON.parse(row.traces) as RpcTraceResult;
                     traces.push(trace);
                 }
             }
@@ -391,26 +346,31 @@ export class BlocksDBHelper {
             };
         } else {
             // No filtering, use original query
-            query = includeTraces && this.hasDebug
-                ? `SELECT tx_num, data, traces FROM txs WHERE tx_num > ${txNumParam} ORDER BY tx_num ASC LIMIT ${limitParam}`
-                : `SELECT tx_num, data FROM txs WHERE tx_num > ${txNumParam} ORDER BY tx_num ASC LIMIT ${limitParam}`;
+            const query = includeTraces && this.hasDebug
+                ? `SELECT tx_num, data, traces FROM txs WHERE tx_num > ? ORDER BY tx_num ASC LIMIT ?`
+                : `SELECT tx_num, data FROM txs WHERE tx_num > ? ORDER BY tx_num ASC LIMIT ?`;
 
-            const mysqlGetStarted = performance.now();
-            const [rows] = await this.pool.query<mysql.RowDataPacket[]>(query);
-            const mysqlGetEnded = performance.now();
-            if (mysqlGetEnded - mysqlGetStarted > 100) {
-                console.log(`MySQL query took ${mysqlGetEnded - mysqlGetStarted}ms`);
+            const startTime = performance.now();
+            const stmt = this.db.prepare(query);
+            const rows = stmt.all(txNumParam, limitParam) as any[];
+            const elapsed = performance.now() - startTime;
+            if (elapsed > 100) {
+                console.log(`SQLite query took ${elapsed}ms`);
             }
 
             const txs: StoredTx[] = [];
             const traces: RpcTraceResult[] = [];
 
             for (const row of rows) {
-                const storedTx = JSON.parse(row['data']) as StoredTx;
+                const txData = JSON.parse(row.data);
+                const storedTx: StoredTx = {
+                    txNum: row.tx_num,
+                    ...txData
+                };
                 txs.push(storedTx);
 
-                if (this.hasDebug && includeTraces && row['traces']) {
-                    const trace = JSON.parse(row['traces']) as RpcTraceResult;
+                if (this.hasDebug && includeTraces && row.traces) {
+                    const trace = JSON.parse(row.traces) as RpcTraceResult;
                     traces.push(trace);
                 }
             }
@@ -423,18 +383,15 @@ export class BlocksDBHelper {
         }
     }
 
-    async slow_getBlockWithTransactions(blockIdentifier: number | string): Promise<RpcBlock | null> {
+    slow_getBlockWithTransactions(blockIdentifier: number | string): RpcBlock | null {
         let blockNumber: number = -1;
-        let blockRow: mysql.RowDataPacket | undefined;
+        let blockRow: any;
 
         if (typeof blockIdentifier === 'number') {
             // Query by block number
             blockNumber = blockIdentifier;
-            const [rows] = await this.pool.execute<mysql.RowDataPacket[]>(
-                'SELECT number, hash, data FROM blocks WHERE number = ?',
-                [blockNumber]
-            );
-            blockRow = rows[0];
+            const stmt = this.db.prepare('SELECT number, hash, data FROM blocks WHERE number = ?');
+            blockRow = stmt.get(blockNumber);
         } else {
             // Query by block hash
             const hashStr = blockIdentifier.startsWith('0x') ? blockIdentifier.slice(2) : blockIdentifier;
@@ -443,17 +400,15 @@ export class BlocksDBHelper {
             }
             const hashPrefix = Buffer.from(hashStr, 'hex').slice(0, 5);
 
-            const [rows] = await this.pool.execute<mysql.RowDataPacket[]>(
-                'SELECT number, hash, data FROM blocks WHERE hash = ?',
-                [hashPrefix]
-            );
+            const stmt = this.db.prepare('SELECT number, hash, data FROM blocks WHERE hash = ?');
+            const rows = stmt.all(hashPrefix) as any[];
 
             // Handle potential collisions by checking the full hash in the data
             for (const row of rows) {
-                const storedData = JSON.parse(row['data']) as Omit<RpcBlock, 'transactions'>;
+                const storedData = JSON.parse(row.data) as Omit<RpcBlock, 'transactions'>;
                 if (storedData.hash.toLowerCase() === ('0x' + hashStr).toLowerCase()) {
                     blockRow = row;
-                    blockNumber = row['number'];
+                    blockNumber = row.number;
                     break;
                 }
             }
@@ -468,20 +423,18 @@ export class BlocksDBHelper {
         }
 
         // Parse the block data (without transactions)
-        const storedBlock = JSON.parse(blockRow['data']) as Omit<RpcBlock, 'transactions'>;
+        const storedBlock = JSON.parse(blockRow.data) as Omit<RpcBlock, 'transactions'>;
 
-        // Fetch all transactions for this block ordered by tx_idx
-        const [txRows] = await this.pool.execute<mysql.RowDataPacket[]>(
-            'SELECT data FROM txs WHERE block_num = ? ORDER BY tx_num ASC',
-            [blockNumber]
-        );
+        // Fetch all transactions for this block ordered by tx_num
+        const txStmt = this.db.prepare('SELECT data FROM txs WHERE block_num = ? ORDER BY tx_num ASC');
+        const txRows = txStmt.all(blockNumber) as any[];
 
         // Reconstruct the transactions array
         const transactions: RpcBlockTransaction[] = [];
 
         for (const txRow of txRows) {
-            const storedTx = JSON.parse(txRow['data']) as StoredTx;
-            transactions.push(storedTx.tx);
+            const txData = JSON.parse(txRow.data);
+            transactions.push(txData.tx);
         }
 
         // Reassemble the complete RpcBlock
@@ -493,46 +446,55 @@ export class BlocksDBHelper {
         return fullBlock;
     }
 
-    async getTxReceipt(txHash: string): Promise<StoredRpcTxReceipt | null> {
+    getTxReceipt(txHash: string): StoredRpcTxReceipt | null {
         const hashStr = txHash.replace(/^0x/, '');
         const hashPrefix = Buffer.from(hashStr, 'hex').slice(0, 5);
-        const [rows] = await this.pool.execute<mysql.RowDataPacket[]>(
-            'SELECT data FROM txs WHERE hash = ?',
-            [hashPrefix]
-        );
+        const stmt = this.db.prepare('SELECT data FROM txs WHERE hash = ?');
+        const rows = stmt.all(hashPrefix) as any[];
 
         // Handle potential collisions by checking the full hash in the data
         for (const row of rows) {
-            const storedTx = JSON.parse(row['data']) as StoredTx;
-            if (storedTx.tx.hash.toLowerCase() === ('0x' + hashStr).toLowerCase()) {
-                return storedTx.receipt;
+            const txData = JSON.parse(row.data);
+            if (txData.tx.hash.toLowerCase() === ('0x' + hashStr).toLowerCase()) {
+                return txData.receipt;
             }
         }
 
         return null;
     }
 
-    async slow_getBlockTraces(blockNumber: number): Promise<RpcTraceResult[]> {
-        const [rows] = await this.pool.execute<mysql.RowDataPacket[]>(
-            'SELECT traces FROM txs WHERE block_num = ? ORDER BY tx_num ASC',
-            [blockNumber]
-        );
+    slow_getBlockTraces(blockNumber: number): RpcTraceResult[] {
+        const stmt = this.db.prepare('SELECT traces FROM txs WHERE block_num = ? ORDER BY tx_num ASC');
+        const rows = stmt.all(blockNumber) as any[];
 
         const traces: RpcTraceResult[] = [];
         for (const row of rows) {
-            if (!row['traces']) continue;
-            const trace = JSON.parse(row['traces']) as RpcTraceResult;
+            if (!row.traces) continue;
+            const trace = JSON.parse(row.traces) as RpcTraceResult;
             traces.push(trace);
         }
         return traces;
     }
 
     /**
-     * Get direct access to the underlying pool for custom queries.
+     * Get direct access to the underlying database for custom queries.
      * USE WITH CAUTION: This bypasses all abstractions and safety checks.
      */
-    getDatabase(): mysql.Pool {
-        return this.pool;
+    getDatabase(): sqlite3.Database {
+        return this.db;
+    }
+
+    /**
+     * Cache and return a prepared statement. Automatically caches statements by SQL string.
+     * Usage: this.cacheStatement('SELECT * FROM txs WHERE tx_num > ?').all(param)
+     */
+    private cacheStatement(sql: string): sqlite3.Statement {
+        let stmt = this.statementCache.get(sql);
+        if (!stmt) {
+            stmt = this.db.prepare(sql);
+            this.statementCache.set(sql, stmt);
+        }
+        return stmt;
     }
 
     /**
@@ -559,22 +521,23 @@ export class BlocksDBHelper {
     /**
      * Get a value from kv_int table with a default fallback
      */
-    private async getIntValue(key: string, defaultValue: number): Promise<number> {
+    private getIntValue(key: string, defaultValue: number): number {
         for (let attempt = 1; attempt <= 10; attempt++) {
             try {
-                const [rows] = await this.pool.execute<mysql.RowDataPacket[]>(
-                    'SELECT value FROM kv_int WHERE `key` = ?',
-                    [key]
-                );
-                return rows[0]?.['value'] ?? defaultValue;
+                const row = this.cacheStatement('SELECT value FROM kv_int WHERE key = ?').get(key) as any;
+                return row?.value ?? defaultValue;
             } catch (error: any) {
-                if (error.code === 'ER_NO_SUCH_TABLE' && error.sqlMessage?.includes("doesn't exist")) {
+                if (error.code === 'SQLITE_ERROR' && error.message?.includes("no such table")) {
                     console.log(`Table kv_int doesn't exist, attempt ${attempt}/10. Waiting 1 second...`);
                     if (attempt === 10) {
                         console.error('Table kv_int still doesn\'t exist after 10 attempts. Exiting.');
                         process.exit(1);
                     }
-                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    // Sleep synchronously (blocking)
+                    const start = Date.now();
+                    while (Date.now() - start < 1000) {
+                        // busy wait
+                    }
                     continue;
                 }
                 throw error;
@@ -587,20 +550,9 @@ export class BlocksDBHelper {
     /**
      * Set a value in kv_int table
      */
-    private async setIntValue(key: string, value: number): Promise<void> {
-        await this.pool.execute(
-            'INSERT INTO kv_int (`key`, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)',
-            [key, value]
-        );
-    }
-
-    /**
-     * Set a value in kv_int table using an existing connection
-     */
-    private async setIntValueWithConnection(key: string, value: number, connection: mysql.PoolConnection): Promise<void> {
-        await connection.execute(
-            'INSERT INTO kv_int (`key`, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)',
-            [key, value]
-        );
+    private setIntValue(key: string, value: number): void {
+        this.cacheStatement(
+            'INSERT INTO kv_int (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+        ).run(key, value);
     }
 }

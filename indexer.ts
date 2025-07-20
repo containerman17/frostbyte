@@ -12,7 +12,6 @@ const TXS_PER_LOOP = 10000;
 const SLEEP_TIME = 3000;
 
 export interface IndexerOptions {
-    pool: sqlite3.Database;
     chainId: string;
     exitWhenDone?: boolean;
     debugEnabled: boolean;
@@ -39,8 +38,8 @@ async function startIndexer(
         throw new Error(`Indexer ${name} has invalid version ${version}`);
     }
 
-    // Get the pool for this specific indexer with version checking
-    const pool = await getSqliteDb({
+    // Get the db for this specific indexer with version checking
+    const db = getSqliteDb({
         debugEnabled,
         type: "plugin",
         indexerName: name,
@@ -51,23 +50,19 @@ async function startIndexer(
     // kv_int table is already created by getSqliteDb, no need to call initializeIndexingDB
 
     // Initialize indexer if needed
-    const isIndexerInitialized = await getIntValue(pool, `isIndexerInitialized_${name}`, 0) === 1;
+    const isIndexerInitialized = getIntValue(db, `isIndexerInitialized_${name}`, 0) === 1;
 
     if (!isIndexerInitialized) {
         // Initialize a new database for this indexer
         console.log(`[${name} - ${chainConfig.chainName}] Initializing new database`);
-        const initConnection = await pool.getConnection();
-        try {
-            await initConnection.beginTransaction();
-            await indexer.initialize(initConnection);
-            await setIntValue(initConnection, `isIndexerInitialized_${name}`, 1);
-            await initConnection.commit();
-        } catch (error) {
-            await initConnection.rollback();
-            throw error;
-        } finally {
-            await initConnection.release();
-        }
+
+        // Combine indexer.initialize and setIntValue in one SQLite transaction
+        const initializeTransaction = db.transaction(() => {
+            indexer.initialize(db);
+            setIntValue(db, `isIndexerInitialized_${name}`, 1);
+        });
+
+        initializeTransaction();
     }
 
     let hadSomethingToIndex = false;
@@ -77,7 +72,7 @@ async function startIndexer(
     // Main indexing loop
     while (true) {
         // Get last indexed transaction from db (outside of transaction)
-        const lastIndexedTx = await getIntValue(pool, `lastIndexedTx_${name}`, -1);
+        const lastIndexedTx = getIntValue(db, `lastIndexedTx_${name}`, -1);
 
         // Fetch data from BlocksDBHelper (async operation)
         const getStart = performance.now();
@@ -89,7 +84,7 @@ async function startIndexer(
             consecutiveEmptyBatches++;
 
             if (transactions.maxTxNum > lastIndexedTx) {
-                await setIntValue(pool, `lastIndexedTx_${name}`, transactions.maxTxNum);
+                setIntValue(db, `lastIndexedTx_${name}`, transactions.maxTxNum);
             }
 
             // Check if we should exit
@@ -105,19 +100,13 @@ async function startIndexer(
 
         consecutiveEmptyBatches = 0;
 
-        const conn = await pool.getConnection();
-        try {
-            await conn.beginTransaction();
-            await indexer.handleTxBatch(conn, blocksDb, transactions);
-            await setIntValue(conn, `lastIndexedTx_${name}`, transactions.txs[transactions.txs.length - 1]!.txNum);
-            await conn.commit();
-        } catch (error) {
-            await conn.rollback();
-            throw error;
-        } finally {
-            await conn.release();
-        }
+        // Handle transaction batch in SQLite transaction
+        const handleBatchTransaction = db.transaction(() => {
+            indexer.handleTxBatch(db, blocksDb, transactions);
+            setIntValue(db, `lastIndexedTx_${name}`, transactions.txs[transactions.txs.length - 1]!.txNum);
+        });
 
+        handleBatchTransaction();
 
         const indexingFinish = performance.now();
 
@@ -135,14 +124,19 @@ async function startIndexer(
     }
 
     console.log(`[${name} - ${chainConfig.chainName}] Indexer finished`);
-    await pool.end();
+    db.close();
 }
 
 export async function startAllIndexers(options: IndexerOptions): Promise<void> {
-    const blocksDb = await BlocksDBHelper.createFromPool(options.pool, {
-        isReadonly: true,
-        hasDebug: options.debugEnabled
-    });
+    const blocksDb = new BlocksDBHelper(
+        getSqliteDb({
+            debugEnabled: options.debugEnabled,
+            type: "blocks",
+            chainId: options.chainId,
+        }),
+        true,
+        options.debugEnabled
+    );
 
     //FIXME: figure out how to actually land evmChainID here and compare
     const evmChainId = await blocksDb.getEvmChainId();
@@ -168,10 +162,15 @@ export async function startAllIndexers(options: IndexerOptions): Promise<void> {
 }
 
 export async function startSingleIndexer(options: SingleIndexerOptions): Promise<void> {
-    const blocksDb = await BlocksDBHelper.createFromPool(options.pool, {
-        isReadonly: true,
-        hasDebug: options.debugEnabled
-    });
+    const blocksDb = new BlocksDBHelper(
+        getSqliteDb({
+            debugEnabled: options.debugEnabled,
+            type: "blocks",
+            chainId: options.chainId,
+        }),
+        true,
+        options.debugEnabled
+    );
 
     //FIXME: figure out how to actually land evmChainID here and compare
     const evmChainId = await blocksDb.getEvmChainId();

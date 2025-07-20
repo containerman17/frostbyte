@@ -126,7 +126,7 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
     }
 
     const blocksDbCache = new Map<number, BlocksDBHelper>();
-    const getBlocksDbHelper = async (evmChainId: number): Promise<BlocksDBHelper> => {
+    const getBlocksDbHelper = (evmChainId: number): BlocksDBHelper => {
         if (blocksDbCache.has(evmChainId)) {
             return blocksDbCache.get(evmChainId)!;
         }
@@ -134,20 +134,17 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
         if (!chainConfig) {
             throw new Error(`Chain config not found for evmChainId: ${evmChainId}`);
         }
-        const pool = await getSqliteDb({
+        const db = getSqliteDb({
             debugEnabled: chainConfig.rpcConfig.rpcSupportsDebug,
             type: "blocks",
             chainId: chainConfig.blockchainId,
         });
-        const blocksDb = await BlocksDBHelper.createFromPool(pool, {
-            isReadonly: true,
-            hasDebug: chainConfig.rpcConfig.rpcSupportsDebug
-        });
+        const blocksDb = new BlocksDBHelper(db, true, chainConfig.rpcConfig.rpcSupportsDebug);
         blocksDbCache.set(evmChainId, blocksDb);
         return blocksDb;
     }
 
-    const getIndexerDbConnection = async (evmChainId: number, indexerName: string): Promise<sqlite3.Database> => {
+    const getIndexerDbConnection = async (evmChainId: number, indexerName: string): sqlite3.Database => {
         const indexerVersion = availableIndexers.get(indexerName);
         if (indexerVersion === undefined) {
             throw new Error(`Indexer "${indexerName}" not found in available indexers`);
@@ -157,14 +154,14 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
         if (!chainConfig) {
             throw new Error(`Chain config not found for evmChainId: ${evmChainId}`);
         }
-        const pool = await getSqliteDb({
+        const db = getSqliteDb({
             debugEnabled: chainConfig.rpcConfig.rpcSupportsDebug,
             type: "plugin",
             indexerName: indexerName,
             chainId: chainConfig.blockchainId,
             pluginVersion: indexerVersion,
         });
-        return pool;
+        return db;
     }
 
 
