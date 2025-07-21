@@ -2,23 +2,8 @@ import { Level } from 'level'
 import { rmSync, statSync, readdirSync } from 'fs'
 import { join } from 'path'
 import sqlite3 from 'better-sqlite3'
-
-// Type definitions for rocksdb-native (since it has no TS support)
-interface RocksDBWriter {
-    put(key: Buffer, value: string): void
-    flush(): Promise<void>
-}
-
-interface RocksDBReader {
-    get(key: Buffer): Promise<string>
-    flush(): void
-}
-
-interface RocksDBInstance {
-    write(): RocksDBWriter
-    read(): RocksDBReader
-    close(): Promise<void>
-}
+import * as zstd from 'zstd-napi'
+import { open } from 'lmdb'
 
 export interface RpcBlockTransaction {
     hash: string;
@@ -50,25 +35,43 @@ export interface RpcAccessListEntry {
 
 // Configuration
 let BATCH_SIZE = 10000
-let LOOP_COUNT = 10
+let LOOP_COUNT = 4
 let SEED = 12345 // Deterministic seed
+let TX_PER_KEY = 10 // Add this line
 
 // Delete existing databases
 try {
     rmSync('benchmark-db', { recursive: true, force: true })
+    rmSync('benchmark-db-10tx', { recursive: true, force: true })
+    rmSync('benchmark-lmdb', { recursive: true, force: true })
     rmSync('benchmark.sqlite', { force: true })
-    rmSync('benchmark-rocks.db', { recursive: true, force: true })
     console.log('Deleted existing databases')
 } catch (e) {
     // Databases don't exist, that's fine
 }
 
-
 // Create LevelDB
-const db = new Level<Buffer, string>('benchmark-db', {
-    // db: rocksdb,
+const db = new Level<Buffer, Buffer>('benchmark-db', {
     keyEncoding: 'buffer',
-    valueEncoding: 'utf8'
+    valueEncoding: 'buffer', // Changed to buffer for compressed data
+    compression: false
+})
+
+// Create LevelDB for 10tx batching test
+const db10tx = new Level<Buffer, Buffer>('benchmark-db-10tx', {
+    keyEncoding: 'buffer',
+    valueEncoding: 'buffer',
+    compression: false
+})
+
+// Create LMDB database
+const lmdb = open({
+    path: 'benchmark-lmdb',
+    compression: false, // We'll handle compression ourselves
+    mapSize: 1024 * 1024 * 1024, // 1GB map size
+    noSync: true, // Disable sync for benchmarking (like SQLite OFF mode)
+    noMetaSync: true, // Disable metadata sync
+    encoding: 'binary' // Use binary encoding for raw buffers
 })
 
 // Create SQLite database
@@ -81,15 +84,14 @@ sqlite.pragma('temp_store = memory')
 sqlite.exec(`
     CREATE TABLE transactions (
         key BLOB PRIMARY KEY,
-        value TEXT NOT NULL
+        value BLOB NOT NULL
     )
 `)
-
 
 // Prepare SQLite statements
 const insertStmt = sqlite.prepare('INSERT INTO transactions (key, value) VALUES (?, ?)')
 const selectStmt = sqlite.prepare('SELECT value FROM transactions WHERE key = ?')
-const insertMany = sqlite.transaction((batch: Array<{ key: Buffer, value: string }>) => {
+const insertMany = sqlite.transaction((batch: Array<{ key: Buffer, value: Buffer }>) => {
     for (const item of batch) {
         insertStmt.run(item.key, item.value)
     }
@@ -177,41 +179,105 @@ function generateBatch(size: number): Array<{ key: Buffer, value: RpcBlockTransa
     return batch
 }
 
+// Generate batch for 10tx test - each key stores 10 transactions
+function generate10TxBatch(batchCount: number): Array<{ key: Buffer, value: RpcBlockTransaction[] }> {
+    const batch = []
+    for (let i = 0; i < batchCount; i++) {
+        const transactions = []
+        for (let j = 0; j < 10; j++) {
+            transactions.push(generateDeterministicTransaction())
+        }
+
+        // Key is just the batch number as 4 bytes
+        const key = Buffer.alloc(4)
+        key.writeUInt32BE(i, 0)
+
+        batch.push({
+            key,
+            value: transactions
+        })
+    }
+    return batch
+}
+
+// Compression helpers
+function compressValue(value: any): Buffer {
+    return zstd.compress(Buffer.from(JSON.stringify(value)))
+}
+
+function decompressValue(compressed: Buffer): any {
+    return JSON.parse(zstd.decompress(compressed).toString())
+}
+
 // Benchmark function
 async function runBenchmark() {
-    // Dynamic import for rocksdb-native (ES module compatibility)
-    const { default: RocksDB } = await import('rocksdb-native') as any
-    const rocksdb: RocksDBInstance = new RocksDB('./benchmark-rocks.db')
-
     console.log(`Starting benchmark with batch size: ${BATCH_SIZE}`)
     console.log(`Running for ${LOOP_COUNT} loops`)
     console.log(`Seed: ${SEED} (deterministic data generation)`)
+    console.log(`TX_PER_KEY: ${TX_PER_KEY}`)
     console.log('Key size: 10 bytes, Value: RpcBlockTransaction strings (varied sizes, 3-7 access entries)')
-    console.log('Comparing LevelDB vs RocksDB vs SQLite (WAL mode) - all storing strings (fair comparison)')
+    console.log('Comparing LevelDB vs SQLite vs LMDB vs LevelDB-batched (all with zstd compression)')
     console.log('---')
 
     let totalLevelWriteTime = 0
     let totalLevelReadTime = 0
-    let totalRocksWriteTime = 0
-    let totalRocksReadTime = 0
     let totalSqliteWriteTime = 0
     let totalSqliteReadTime = 0
+    let totalLmdbWriteTime = 0
+    let totalLmdbReadTime = 0
+    let totalLevelBatchedWriteTime = 0
+    let totalLevelBatchedReadTime = 0
 
     for (let iteration = 1; iteration <= LOOP_COUNT; iteration++) {
-        // Generate batch data
+        // Reset counter for deterministic generation across all tests
+        counter = SEED + iteration * 1000000
+
+        // Generate batch data for 1tx per key
         const batchData = generateBatch(BATCH_SIZE)
 
-        // Prepare LevelDB batch operations
+        // Reset counter and generate batched data using same generation logic
+        counter = SEED + iteration * 1000000
+        const batchedData: Array<{ key: Buffer, value: RpcBlockTransaction[] }> = []
+        for (let i = 0; i < BATCH_SIZE / TX_PER_KEY; i++) {
+            const transactions = []
+            for (let j = 0; j < TX_PER_KEY; j++) {
+                transactions.push(generateDeterministicTransaction())
+            }
+
+            // Key is just the batch number as 4 bytes  
+            const key = Buffer.alloc(4)
+            key.writeUInt32BE((iteration - 1) * (BATCH_SIZE / TX_PER_KEY) + i, 0)
+
+            batchedData.push({
+                key,
+                value: transactions
+            })
+        }
+
+        // Prepare LevelDB batch operations with compression
         const levelBatchOps = batchData.map(({ key, value }) => ({
             type: 'put' as const,
             key,
-            value: JSON.stringify(value)
+            value: compressValue(value)
         }))
 
-        // Prepare SQLite batch data
+        // Prepare SQLite batch data with compression
         const sqliteBatchData = batchData.map(({ key, value }) => ({
             key,
-            value: JSON.stringify(value)
+            value: compressValue(value)
+        }))
+
+        // Prepare LMDB batch data with compression
+        const lmdbBatchData = batchData.map(({ key, value }) => ({
+            key,
+            value: compressValue(value)
+        }))
+
+        // Prepare LevelDB batched operations with compression
+        const levelBatchedBatchOps = batchedData.map(({ key, value }) => ({
+            type: 'put' as const,
+            key,
+            value: compressValue(value)
         }))
 
         // === LEVELDB OPERATIONS ===
@@ -225,33 +291,14 @@ async function runBenchmark() {
 
         // Measure LevelDB parallel read time
         const levelReadStart = performance.now()
-        const levelReadPromises = batchData.map(({ key }) => db.get(key))
+        const levelReadPromises = batchData.map(async ({ key }) => {
+            const compressed = await db.get(key)
+            return decompressValue(compressed)
+        })
         await Promise.all(levelReadPromises)
         const levelReadEnd = performance.now()
         const levelReadTime = levelReadEnd - levelReadStart
         totalLevelReadTime += levelReadTime
-
-        // === ROCKSDB OPERATIONS ===
-
-        // Measure RocksDB write time
-        const rocksWriteStart = performance.now()
-        const rocksWriter = rocksdb.write()
-        for (const { key, value } of batchData) {
-            rocksWriter.put(key, JSON.stringify(value))
-        }
-        await rocksWriter.flush()
-        const rocksWriteEnd = performance.now()
-        const rocksWriteTime = rocksWriteEnd - rocksWriteStart
-        totalRocksWriteTime += rocksWriteTime
-
-        // Measure RocksDB parallel read time
-        const rocksReadStart = performance.now()
-        const rocksReader = rocksdb.read()
-        const rocksReadPromises = batchData.map(({ key }) => rocksReader.get(key))
-        await Promise.all(rocksReadPromises)
-        const rocksReadEnd = performance.now()
-        const rocksReadTime = rocksReadEnd - rocksReadStart
-        totalRocksReadTime += rocksReadTime
 
         // === SQLITE OPERATIONS ===
 
@@ -265,33 +312,85 @@ async function runBenchmark() {
         // Measure SQLite parallel read time (simulate with Promise.all)
         const sqliteReadStart = performance.now()
         const sqliteReadPromises = batchData.map(({ key }) =>
-            Promise.resolve(selectStmt.get(key))
+            Promise.resolve().then(() => {
+                const result = selectStmt.get(key) as { value: Buffer }
+                return decompressValue(result.value)
+            })
         )
         await Promise.all(sqliteReadPromises)
         const sqliteReadEnd = performance.now()
         const sqliteReadTime = sqliteReadEnd - sqliteReadStart
         totalSqliteReadTime += sqliteReadTime
 
+        // === LMDB OPERATIONS ===
+
+        // Measure LMDB write time
+        const lmdbWriteStart = performance.now()
+        lmdb.transactionSync(() => {
+            for (const { key, value } of lmdbBatchData) {
+                lmdb.put(key, value)
+            }
+        })
+        const lmdbWriteEnd = performance.now()
+        const lmdbWriteTime = lmdbWriteEnd - lmdbWriteStart
+        totalLmdbWriteTime += lmdbWriteTime
+
+        // Measure LMDB parallel read time
+        const lmdbReadStart = performance.now()
+        const lmdbReadPromises = batchData.map(async ({ key }) => {
+            const compressed = lmdb.get(key) as Buffer
+            return decompressValue(compressed)
+        })
+        await Promise.all(lmdbReadPromises)
+        const lmdbReadEnd = performance.now()
+        const lmdbReadTime = lmdbReadEnd - lmdbReadStart
+        totalLmdbReadTime += lmdbReadTime
+
+        // === LEVELDB BATCHED OPERATIONS ===
+
+        // Measure LevelDB batched write time
+        const levelBatchedWriteStart = performance.now()
+        await db10tx.batch(levelBatchedBatchOps)
+        const levelBatchedWriteEnd = performance.now()
+        const levelBatchedWriteTime = levelBatchedWriteEnd - levelBatchedWriteStart
+        totalLevelBatchedWriteTime += levelBatchedWriteTime
+
+        // Measure LevelDB batched parallel read time
+        const levelBatchedReadStart = performance.now()
+        const levelBatchedReadPromises = batchedData.map(async ({ key }) => {
+            const compressed = await db10tx.get(key)
+            return decompressValue(compressed)
+        })
+        await Promise.all(levelBatchedReadPromises)
+        const levelBatchedReadEnd = performance.now()
+        const levelBatchedReadTime = levelBatchedReadEnd - levelBatchedReadStart
+        totalLevelBatchedReadTime += levelBatchedReadTime
+
         // Calculate rates
         const levelWriteRate = (BATCH_SIZE / levelWriteTime * 1000).toFixed(0)
         const levelReadRate = (BATCH_SIZE / levelReadTime * 1000).toFixed(0)
-        const rocksWriteRate = (BATCH_SIZE / rocksWriteTime * 1000).toFixed(0)
-        const rocksReadRate = (BATCH_SIZE / rocksReadTime * 1000).toFixed(0)
         const sqliteWriteRate = (BATCH_SIZE / sqliteWriteTime * 1000).toFixed(0)
         const sqliteReadRate = (BATCH_SIZE / sqliteReadTime * 1000).toFixed(0)
+        const lmdbWriteRate = (BATCH_SIZE / lmdbWriteTime * 1000).toFixed(0)
+        const lmdbReadRate = (BATCH_SIZE / lmdbReadTime * 1000).toFixed(0)
+        const levelBatchedWriteRate = (BATCH_SIZE / levelBatchedWriteTime * 1000).toFixed(0)
+        const levelBatchedReadRate = (BATCH_SIZE / levelBatchedReadTime * 1000).toFixed(0)
 
         // Calculate average transaction size (rough estimate)
         const sampleTx = batchData.length > 0 ? JSON.stringify(batchData[0]!.value) : '{}'
         const avgTxSize = sampleTx.length
+        const sampleBatchedCompressed = batchedData.length > 0 ? compressValue(batchedData[0]!.value) : Buffer.alloc(0)
 
         console.log(`Iteration ${iteration}/${LOOP_COUNT}:`)
-        console.log(`  Avg TX size: ~${avgTxSize} bytes`)
-        console.log(`  LevelDB Write: ${levelWriteTime.toFixed(2)}ms (${levelWriteRate} ops/sec)`)
-        console.log(`  LevelDB Read:  ${levelReadTime.toFixed(2)}ms (${levelReadRate} ops/sec)`)
-        console.log(`  RocksDB Write: ${rocksWriteTime.toFixed(2)}ms (${rocksWriteRate} ops/sec)`)
-        console.log(`  RocksDB Read:  ${rocksReadTime.toFixed(2)}ms (${rocksReadRate} ops/sec)`)
-        console.log(`  SQLite Write:  ${sqliteWriteTime.toFixed(2)}ms (${sqliteWriteRate} ops/sec)`)
-        console.log(`  SQLite Read:   ${sqliteReadTime.toFixed(2)}ms (${sqliteReadRate} ops/sec)`)
+        console.log(`  Avg TX size: ~${avgTxSize} bytes, ${TX_PER_KEY}tx compressed: ${sampleBatchedCompressed.length} bytes`)
+        console.log(`  LevelDB Write:    ${levelWriteTime.toFixed(2)}ms (${levelWriteRate} ops/sec)`)
+        console.log(`  LevelDB Read:     ${levelReadTime.toFixed(2)}ms (${levelReadRate} ops/sec)`)
+        console.log(`  SQLite Write:     ${sqliteWriteTime.toFixed(2)}ms (${sqliteWriteRate} ops/sec)`)
+        console.log(`  SQLite Read:      ${sqliteReadTime.toFixed(2)}ms (${sqliteReadRate} ops/sec)`)
+        console.log(`  LMDB Write:       ${lmdbWriteTime.toFixed(2)}ms (${lmdbWriteRate} ops/sec)`)
+        console.log(`  LMDB Read:        ${lmdbReadTime.toFixed(2)}ms (${lmdbReadRate} ops/sec)`)
+        console.log(`  LevelDB-${TX_PER_KEY}tx Write: ${levelBatchedWriteTime.toFixed(2)}ms (${levelBatchedWriteRate} ops/sec)`)
+        console.log(`  LevelDB-${TX_PER_KEY}tx Read:  ${levelBatchedReadTime.toFixed(2)}ms (${levelBatchedReadRate} ops/sec)`)
         console.log('---')
     }
 
@@ -300,36 +399,56 @@ async function runBenchmark() {
 
     const avgLevelWriteRate = (totalOps / totalLevelWriteTime * 1000).toFixed(0)
     const avgLevelReadRate = (totalOps / totalLevelReadTime * 1000).toFixed(0)
-    const avgRocksWriteRate = (totalOps / totalRocksWriteTime * 1000).toFixed(0)
-    const avgRocksReadRate = (totalOps / totalRocksReadTime * 1000).toFixed(0)
     const avgSqliteWriteRate = (totalOps / totalSqliteWriteTime * 1000).toFixed(0)
     const avgSqliteReadRate = (totalOps / totalSqliteReadTime * 1000).toFixed(0)
+    const avgLmdbWriteRate = (totalOps / totalLmdbWriteTime * 1000).toFixed(0)
+    const avgLmdbReadRate = (totalOps / totalLmdbReadTime * 1000).toFixed(0)
+    const avgLevelBatchedWriteRate = (totalOps / totalLevelBatchedWriteTime * 1000).toFixed(0)
+    const avgLevelBatchedReadRate = (totalOps / totalLevelBatchedReadTime * 1000).toFixed(0)
 
     console.log('BENCHMARK TOTALS:')
     console.log(`  Total operations: ${totalOps} (${BATCH_SIZE} × ${LOOP_COUNT})`)
     console.log('')
-    console.log('  LEVELDB:')
+    console.log('  LEVELDB (1tx per key):')
     console.log(`    Write time: ${totalLevelWriteTime.toFixed(2)}ms (avg ${avgLevelWriteRate} ops/sec)`)
     console.log(`    Read time:  ${totalLevelReadTime.toFixed(2)}ms (avg ${avgLevelReadRate} ops/sec)`)
     console.log(`    Total time: ${(totalLevelWriteTime + totalLevelReadTime).toFixed(2)}ms`)
-    console.log('')
-    console.log('  ROCKSDB:')
-    console.log(`    Write time: ${totalRocksWriteTime.toFixed(2)}ms (avg ${avgRocksWriteRate} ops/sec)`)
-    console.log(`    Read time:  ${totalRocksReadTime.toFixed(2)}ms (avg ${avgRocksReadRate} ops/sec)`)
-    console.log(`    Total time: ${(totalRocksWriteTime + totalRocksReadTime).toFixed(2)}ms`)
     console.log('')
     console.log('  SQLITE:')
     console.log(`    Write time: ${totalSqliteWriteTime.toFixed(2)}ms (avg ${avgSqliteWriteRate} ops/sec)`)
     console.log(`    Read time:  ${totalSqliteReadTime.toFixed(2)}ms (avg ${avgSqliteReadRate} ops/sec)`)
     console.log(`    Total time: ${(totalSqliteWriteTime + totalSqliteReadTime).toFixed(2)}ms`)
     console.log('')
+    console.log('  LMDB:')
+    console.log(`    Write time: ${totalLmdbWriteTime.toFixed(2)}ms (avg ${avgLmdbWriteRate} ops/sec)`)
+    console.log(`    Read time:  ${totalLmdbReadTime.toFixed(2)}ms (avg ${avgLmdbReadRate} ops/sec)`)
+    console.log(`    Total time: ${(totalLmdbWriteTime + totalLmdbReadTime).toFixed(2)}ms`)
+    console.log('')
+    console.log(`  LEVELDB (${TX_PER_KEY}tx per key):`)
+    console.log(`    Write time: ${totalLevelBatchedWriteTime.toFixed(2)}ms (avg ${avgLevelBatchedWriteRate} ops/sec)`)
+    console.log(`    Read time:  ${totalLevelBatchedReadTime.toFixed(2)}ms (avg ${avgLevelBatchedReadRate} ops/sec)`)
+
+    // Calculate adjusted read time for production usage (no LRU cache)
+    const adjustedBatchedReadTime = totalLevelBatchedReadTime * TX_PER_KEY
+    const adjustedBatchedReadRate = (totalOps / adjustedBatchedReadTime * 1000).toFixed(0)
+    console.log(`    Read time (adjusted for single-tx access): ${adjustedBatchedReadTime.toFixed(2)}ms (avg ${adjustedBatchedReadRate} ops/sec)`)
+
+    console.log(`    Total time: ${(totalLevelBatchedWriteTime + totalLevelBatchedReadTime).toFixed(2)}ms`)
+    console.log(`    Total time (adjusted): ${(totalLevelBatchedWriteTime + adjustedBatchedReadTime).toFixed(2)}ms`)
+    console.log('')
     console.log('  COMPARISON:')
-    console.log(`    Write speed: RocksDB vs LevelDB: ${(totalLevelWriteTime / totalRocksWriteTime).toFixed(2)}x, SQLite vs LevelDB: ${(totalLevelWriteTime / totalSqliteWriteTime).toFixed(2)}x`)
-    console.log(`    Read speed:  RocksDB vs LevelDB: ${(totalLevelReadTime / totalRocksReadTime).toFixed(2)}x, SQLite vs LevelDB: ${(totalLevelReadTime / totalSqliteReadTime).toFixed(2)}x`)
+    console.log(`    Write speed: SQLite vs LevelDB-1tx: ${(totalLevelWriteTime / totalSqliteWriteTime).toFixed(2)}x`)
+    console.log(`    Write speed: LMDB vs LevelDB-1tx: ${(totalLevelWriteTime / totalLmdbWriteTime).toFixed(2)}x`)
+    console.log(`    Write speed: LevelDB-${TX_PER_KEY}tx vs LevelDB-1tx: ${(totalLevelWriteTime / totalLevelBatchedWriteTime).toFixed(2)}x`)
+    console.log(`    Read speed:  SQLite vs LevelDB-1tx: ${(totalLevelReadTime / totalSqliteReadTime).toFixed(2)}x`)
+    console.log(`    Read speed:  LMDB vs LevelDB-1tx: ${(totalLevelReadTime / totalLmdbReadTime).toFixed(2)}x`)
+    console.log(`    Read speed:  LevelDB-${TX_PER_KEY}tx vs LevelDB-1tx: ${(totalLevelReadTime / totalLevelBatchedReadTime).toFixed(2)}x`)
+    console.log(`    Read speed (adjusted): LevelDB-${TX_PER_KEY}tx vs LevelDB-1tx: ${(totalLevelReadTime / adjustedBatchedReadTime).toFixed(2)}x`)
 
     // Close databases before checking sizes
     await db.close()
-    await rocksdb.close()
+    await db10tx.close()
+    await lmdb.close()
     sqlite.close()
 
     // Check database sizes
@@ -348,7 +467,8 @@ async function runBenchmark() {
 
         const sqliteTotalSize = sqliteMainSize + sqliteWalSize + sqliteShmSize
         const levelDbSize = getDirSize('benchmark-db')
-        const rocksDbSize = getDirSize('benchmark-rocks.db')
+        const levelDb10txSize = getDirSize('benchmark-db-10tx')
+        const lmdbSize = getDirSize('benchmark-lmdb')
 
         console.log('')
         console.log('  DATABASE SIZES:')
@@ -359,10 +479,13 @@ async function runBenchmark() {
         if (sqliteShmSize > 0) {
             console.log(`    SQLite (SHM):  ${(sqliteShmSize / 1024 / 1024).toFixed(2)} MB`)
         }
-        console.log(`    SQLite (total): ${(sqliteTotalSize / 1024 / 1024).toFixed(2)} MB`)
-        console.log(`    LevelDB:        ${(levelDbSize / 1024 / 1024).toFixed(2)} MB`)
-        console.log(`    RocksDB:        ${(rocksDbSize / 1024 / 1024).toFixed(2)} MB`)
-        console.log(`    Size comparison: SQLite/LevelDB: ${(sqliteTotalSize / levelDbSize).toFixed(2)}x, RocksDB/LevelDB: ${(rocksDbSize / levelDbSize).toFixed(2)}x`)
+        console.log(`    SQLite (total):     ${(sqliteTotalSize / 1024 / 1024).toFixed(2)} MB`)
+        console.log(`    LevelDB (1tx):      ${(levelDbSize / 1024 / 1024).toFixed(2)} MB`)
+        console.log(`    LMDB:               ${(lmdbSize / 1024 / 1024).toFixed(2)} MB`)
+        console.log(`    LevelDB (${TX_PER_KEY}tx):     ${(levelDb10txSize / 1024 / 1024).toFixed(2)} MB`)
+        console.log(`    Size comparison: SQLite/LevelDB-1tx: ${(sqliteTotalSize / levelDbSize).toFixed(2)}x`)
+        console.log(`    Size comparison: LMDB/LevelDB-1tx: ${(lmdbSize / levelDbSize).toFixed(2)}x`)
+        console.log(`    Size comparison: LevelDB-1tx/LevelDB-${TX_PER_KEY}tx: ${(levelDbSize / levelDb10txSize).toFixed(2)}x`)
 
     } catch (e) {
         console.log('    Could not determine database sizes')
