@@ -5,8 +5,8 @@ const NO_BLOCKS_PAUSE_TIME = 3 * 1000;
 const ERROR_PAUSE_TIME = 10 * 1000;
 
 export async function startFetchingLoop(blockDB: BlocksDBHelper, batchRpc: BatchRpc, blocksPerBatch: number, chainName: string) {
-    let latestRemoteBlock = await blockDB.getBlockchainLatestBlockNum()
-    const needsChainId = (await blockDB.getEvmChainId()) === -1;
+    let latestRemoteBlock = blockDB.getBlockchainLatestBlockNum()
+    const needsChainId = (blockDB.getEvmChainId()) === -1;
 
     while (true) {//Kinda wait for readiness
         try {
@@ -27,7 +27,7 @@ export async function startFetchingLoop(blockDB: BlocksDBHelper, batchRpc: Batch
         }
     }
 
-    let lastStoredBlock = await blockDB.getLastStoredBlockNumber();
+    let lastStoredBlock = blockDB.getLastStoredBlockNumber();
 
     while (true) {
         // Check if we've caught up to the latest remote block
@@ -55,8 +55,16 @@ export async function startFetchingLoop(blockDB: BlocksDBHelper, batchRpc: Batch
         try {
             const start = performance.now();
             const blockNumbers = Array.from({ length: endBlock - startBlock + 1 }, (_, i) => startBlock + i);
-            const blocks = await batchRpc.getBlocksWithReceipts(blockNumbers);
-            await blockDB.storeBlocks(blocks);
+            const blocksPromise = batchRpc.getBlocksWithReceipts(blockNumbers);
+            await new Promise(resolve => setTimeout(resolve, 100));
+            blockDB.performCompressionMaintenance();
+            await new Promise(resolve => setTimeout(resolve, 100));
+            blockDB.performBlockCompressionMaintenance();
+
+            //now actually await
+            const blocks = await blocksPromise;
+
+            blockDB.storeBlocks(blocks);
             lastStoredBlock = endBlock;
 
             const end = performance.now();
@@ -67,7 +75,7 @@ export async function startFetchingLoop(blockDB: BlocksDBHelper, batchRpc: Batch
         } catch (error) {
             console.error(`[${chainName}] Error fetching/storing blocks ${startBlock}-${endBlock}:`, error);
             // Re-fetch the actual last stored block from database after error
-            lastStoredBlock = await blockDB.getLastStoredBlockNumber();
+            lastStoredBlock = blockDB.getLastStoredBlockNumber();
             console.log(`[${chainName}] Reset lastStoredBlock to ${lastStoredBlock} after error`);
             await new Promise(resolve => setTimeout(resolve, ERROR_PAUSE_TIME));
         }

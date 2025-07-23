@@ -2,21 +2,29 @@
 network/RPC calls—never catch and continue. If anything fails, crash immediately
 to ensure data integrity and clear visibility of problems. Always print errors.
 
-For indexers, do not run any compatibility upgrades - we will just drop db and reindex in a few minutes. For blocks db, 
-ask me before doing any non-reverse compatible changes requiring manual upgrade. 
+For indexers, do not run any compatibility upgrades - we will just drop db and
+reindex in a few minutes. For blocks db, ask me before doing any non-reverse
+compatible changes requiring manual upgrade.
 
-**I will run it myself**: Do not test, do not run anything, just write. I will test manually.
+**I will run it myself**: Do not test, do not run anything, just write. I will
+test manually.
 
 Do not add tags and summary field on fastify api specs.
 
-Indexers have to accumulate changes in ram and then dump to the database alltogether in the end. 
+Indexers have to accumulate changes in ram and then dump to the database
+alltogether in the end.
 
-Transactions in handleTxBatch have tx.blockTs field 
+Transactions in handleTxBatch have tx.blockTs field
 
-handleTxBatch are already wrapped in a tx, no need for tramsactions inside handleTxBatch
+handleTxBatch are already wrapped in a tx, no need for tramsactions inside
+handleTxBatch
 
 Any chain-specific requests should start with /{evmChainId}/
 
-Don't forget to bump indexer version if you did any changes to indexing logic or db structure
+Don't forget to bump indexer version if you did any changes to indexing logic or
+db structure
 
-**Language**: Only TypeScript with ES6 imports allowed. No JavaScript files, no require() statements.
+**Language**: Only TypeScript with ES6 imports allowed. No JavaScript files, no
+require() statements.
+
+If importing sqlite3, use `import sqlite3 from 'better-sqlite3';`

@@ -5,9 +5,7 @@ const module: IndexingPlugin = {
     version: Math.floor(Math.random() * 1000000),
     usesTraces: false,
     filterEvents: [
-        "0x7f26b83ff96e1f2b6a682f133852f6798a09c465da95921460cefb3847402498",
-        "0xa25801b4a623dc96869bc01ae2ec7d763ba5e8012407b9d7f96fd65b8a2ce1ba",
-        evmTypes.CONTRACT_CREATION_TOPIC
+        "0x9e71bc8eea02a63969f509818f2dafb9254532904319f9dbda79b67bd34a5f3d",
     ],
 
     // Initialize tables
@@ -20,15 +18,19 @@ const module: IndexingPlugin = {
         const topicStats: Record<string, number> = {};
         console.log(`Got batch ${batch.txs.length} txs from blocks ${Number(batch.txs[0]!.receipt.blockNumber)} to ${Number(batch.txs[batch.txs.length - 1]!.receipt.blockNumber)}`);
         for (let tx of batch.txs) {
+            const txTopics = new Set<string>();
             for (let log of tx.receipt.logs) {
                 const topic = log.topics[0];
                 if (!topic) {
                     continue;
                 }
+                txTopics.add(topic);
+            }
+            for (let topic of txTopics) {
                 topicStats[topic] = (topicStats[topic] || 0) + 1;
             }
         }
-        // console.log(topicStats);
+        console.log(topicStats);
     }
 };
 

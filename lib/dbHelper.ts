@@ -1,25 +1,19 @@
-import mysql from 'mysql2/promise';
+import sqlite3 from 'better-sqlite3';
 
-export async function initializeIndexingDB(db: mysql.Connection): Promise<void> {
-    await db.execute(`
-            CREATE TABLE IF NOT EXISTS kv_int (
-                \`key\`   VARCHAR(255) PRIMARY KEY,
-                \`value\` BIGINT NOT NULL
-            )
-        `);
+export function initializeIndexingDB(db: sqlite3.Database): void {
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS kv_int (
+            key TEXT PRIMARY KEY,
+            value INTEGER NOT NULL
+        )
+    `);
 }
 
-export async function getIntValue(db: mysql.Connection, key: string, defaultValue: number): Promise<number> {
-    const [rows] = await db.execute<mysql.RowDataPacket[]>(
-        'SELECT `value` FROM kv_int WHERE `key` = ?',
-        [key]
-    );
-    return rows[0]?.['value'] ?? defaultValue;
+export function getIntValue(db: sqlite3.Database, key: string, defaultValue: number): number {
+    const value = db.prepare(`SELECT value FROM kv_int WHERE key = ?`).get(key) as { value: number } | undefined;
+    return value?.value ?? defaultValue;
 }
 
-export async function setIntValue(db: mysql.Connection, key: string, value: number): Promise<void> {
-    await db.execute(
-        'INSERT INTO kv_int (`key`, `value`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)',
-        [key, value]
-    );
+export function setIntValue(db: sqlite3.Database, key: string, value: number): void {
+    db.prepare(`INSERT OR REPLACE INTO kv_int (key, value) VALUES (?, ?)`).run(key, value);
 }

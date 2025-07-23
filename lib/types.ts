@@ -5,11 +5,11 @@ import {
     StoredTx
 } from "../blockFetcher/evmTypes";
 import { ChainConfig } from "../config";
-import mysql from "mysql2/promise";
+import sqlite3 from "better-sqlite3";
 
 export interface RegisterRoutesContext {
-    getBlocksDbHelper: (evmChainId: number) => Promise<BlocksDBHelper>;
-    getIndexerDbConnection: (evmChainId: number, indexerName: string) => Promise<mysql.Connection>;
+    getBlocksDbHelper: (evmChainId: number) => BlocksDBHelper;
+    getIndexerDbConnection: (evmChainId: number, indexerName: string) => sqlite3.Database;
     getChainConfig: (evmChainIdOrBlockchainId: number | string) => ChainConfig | undefined;
     getAllChainConfigs: () => ChainConfig[];
 }
@@ -17,7 +17,6 @@ export interface RegisterRoutesContext {
 export type TxBatch = {
     txs: StoredTx[];
     traces: RpcTraceResult[] | undefined;
-    maxTxNum: number;
 }
 
 /** Indexing plugin - processes blockchain data and stores in its own database */
@@ -28,13 +27,13 @@ export interface IndexingPlugin {
     filterEvents?: string[]; // if provided, only transactions with these topics will be processed
 
     /** Called once. Create tables here. */
-    initialize: (db: mysql.Connection) => void | Promise<void>;
+    initialize: (db: sqlite3.Database) => void;
 
     handleTxBatch: (
-        db: mysql.Connection,
+        db: sqlite3.Database,
         blocksDb: BlocksDBHelper,
         batch: TxBatch,
-    ) => void | Promise<void>;
+    ) => void;
 }
 
 /** API plugin - provides REST endpoints using data from specified indexer databases */

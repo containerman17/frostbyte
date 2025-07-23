@@ -1,14 +1,14 @@
 import { BlocksDBHelper } from './blockFetcher/BlocksDBHelper';
 import Fastify, { FastifyInstance } from 'fastify';
 import { loadApiPlugins, loadIndexingPlugins } from './lib/plugins.js';
-import { getMysqlPool, ChainConfig } from './config.js';
+import { getSqliteDb, ChainConfig } from './config.js';
 import { getPluginDirs } from './config.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import chainsApiPlugin from './standardPlugins/chainsApi.js';
 import rpcApiPlugin from './standardPlugins/rpcApi.js';
 import { ASSETS_DIR } from './config.js';
-import mysql from 'mysql2/promise';
+import sqlite3 from 'better-sqlite3';
 
 const docsPage = `
 <!doctype html>
@@ -126,7 +126,7 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
     }
 
     const blocksDbCache = new Map<number, BlocksDBHelper>();
-    const getBlocksDbHelper = async (evmChainId: number): Promise<BlocksDBHelper> => {
+    const getBlocksDbHelper = (evmChainId: number): BlocksDBHelper => {
         if (blocksDbCache.has(evmChainId)) {
             return blocksDbCache.get(evmChainId)!;
         }
@@ -134,20 +134,18 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
         if (!chainConfig) {
             throw new Error(`Chain config not found for evmChainId: ${evmChainId}`);
         }
-        const pool = await getMysqlPool({
+        const db = getSqliteDb({
             debugEnabled: chainConfig.rpcConfig.rpcSupportsDebug,
             type: "blocks",
             chainId: chainConfig.blockchainId,
+            readonly: true,
         });
-        const blocksDb = await BlocksDBHelper.createFromPool(pool, {
-            isReadonly: true,
-            hasDebug: chainConfig.rpcConfig.rpcSupportsDebug
-        });
+        const blocksDb = new BlocksDBHelper(db, true, chainConfig.rpcConfig.rpcSupportsDebug);
         blocksDbCache.set(evmChainId, blocksDb);
         return blocksDb;
     }
 
-    const getIndexerDbConnection = async (evmChainId: number, indexerName: string): Promise<mysql.Connection> => {
+    const getIndexerDbConnection = (evmChainId: number, indexerName: string): sqlite3.Database => {
         const indexerVersion = availableIndexers.get(indexerName);
         if (indexerVersion === undefined) {
             throw new Error(`Indexer "${indexerName}" not found in available indexers`);
@@ -157,14 +155,15 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
         if (!chainConfig) {
             throw new Error(`Chain config not found for evmChainId: ${evmChainId}`);
         }
-        const pool = await getMysqlPool({
+        const db = getSqliteDb({
             debugEnabled: chainConfig.rpcConfig.rpcSupportsDebug,
             type: "plugin",
             indexerName: indexerName,
             chainId: chainConfig.blockchainId,
             pluginVersion: indexerVersion,
+            readonly: true,
         });
-        return pool;
+        return db;
     }
 
 

@@ -42,7 +42,7 @@ When running in Docker, the following paths are used:
 
 - **Host `./data` → Container `/data`**: This directory contains:
   - `chains.json` - Your blockchain configuration
-  - MySQL databases for each chain
+  - sqlite databases for each chain
   - Any other persistent data
 
 - **Host `./plugins` → Container `/plugins`**: This directory contains:
@@ -111,10 +111,10 @@ const module: ApiPlugin = {
   requiredIndexers: ["my-indexer"], // Declare which indexers this API needs
 
   registerRoutes: (app, dbCtx) => {
-    app.get("/:evmChainId/my-endpoint", async (request, reply) => {
+    app.get("/:evmChainId/my-endpoint", (request, reply) => {
       const { evmChainId } = request.params;
       // Access the indexer's database
-      const db = dbCtx.indexerDbFactory(evmChainId, "my-indexer");
+      const db = dbCtx.getIndexerDbConnection(evmChainId, "my-indexer");
       // Query and return data
     });
   },

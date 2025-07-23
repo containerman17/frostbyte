@@ -2,7 +2,7 @@ import cluster, { Worker } from 'node:cluster';
 import { BlocksDBHelper } from './blockFetcher/BlocksDBHelper';
 import { startFetchingLoop } from './blockFetcher/startFetchingLoop.js';
 import { BatchRpc } from './blockFetcher/BatchRpc.js';
-import { CHAIN_CONFIGS, getCurrentChainConfig, getMysqlPool } from './config.js';
+import { CHAIN_CONFIGS, getCurrentChainConfig, getSqliteDb } from './config.js';
 import { createApiServer } from './api.js';
 import { startSingleIndexer, getAvailableIndexers } from './indexer.js';
 
@@ -83,15 +83,13 @@ if (cluster.isPrimary) {
 } else {
     if (process.env['ROLE'] === 'fetcher') {
         const chainConfig = getCurrentChainConfig();
-        const pool = await getMysqlPool({
+        const db = getSqliteDb({
             debugEnabled: chainConfig.rpcConfig.rpcSupportsDebug,
             type: "blocks",
             chainId: chainConfig.blockchainId,
+            readonly: false,
         });
-        const blocksDb = await BlocksDBHelper.createFromPool(pool, {
-            isReadonly: false,
-            hasDebug: chainConfig.rpcConfig.rpcSupportsDebug
-        });
+        const blocksDb = new BlocksDBHelper(db, false, chainConfig.rpcConfig.rpcSupportsDebug);
         const batchRpc = new BatchRpc(chainConfig.rpcConfig);
         startFetchingLoop(blocksDb, batchRpc, chainConfig.rpcConfig.blocksPerBatch, chainConfig.chainName);
     } else if (process.env['ROLE'] === 'api') {
@@ -100,10 +98,11 @@ if (cluster.isPrimary) {
         await apiServer.start(port);
     } else if (process.env['ROLE'] === 'indexer') {
         const chainConfig = getCurrentChainConfig();
-        const pool = await getMysqlPool({
+        const db = getSqliteDb({
             debugEnabled: chainConfig.rpcConfig.rpcSupportsDebug,
             type: "blocks",
             chainId: chainConfig.blockchainId,
+            readonly: true,
         });
 
         // Each indexer worker must have a specific indexer name
@@ -114,7 +113,6 @@ if (cluster.isPrimary) {
 
         console.log(`Starting indexer worker for: ${indexerName}`);
         await startSingleIndexer({
-            pool,
             chainId: chainConfig.blockchainId,
             indexerName,
             exitWhenDone: false,
