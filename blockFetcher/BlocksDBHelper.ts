@@ -1,17 +1,42 @@
 import sqlite3 from 'better-sqlite3';
+import { Compressor, Decompressor } from 'zstd-napi';
 import { RpcBlock, RpcBlockTransaction, RpcTxReceipt, RpcTraceResult, StoredTx, StoredRpcTxReceipt, CONTRACT_CREATION_TOPIC, RpcTraceCall } from './evmTypes.js';
 import { StoredBlock } from './BatchRpc.js';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
+import { execSync } from 'child_process';
 const MAX_ROWS_WITH_FILTER = 10000;
+const ZSTD_COMPRESSION_LEVEL = 1;
+
+// Compression maintenance constants
+const COMPRESSION_BATCH_SIZE = 100000; // Process 100k txs per maintenance call
+const SAMPLE_EVERY_NTH_TX = 3; // Sample every 3rd tx for dictionary training
+const DICT_SIZE_KB = 110; // Dictionary size in KB
+const CACHE_CLEAR_INTERVAL_MS = 60000; // Clear decompressor cache every minute
+
 export class BlocksDBHelper {
     private db: sqlite3.Database;
     private isReadonly: boolean;
     private hasDebug: boolean;
     private statementCache = new Map<string, sqlite3.Statement>();
+    private compressor: Compressor;
+    private decompressor: Decompressor;
+
+    // Dictionary-based decompression cache
+    private dictDecompressorCache = new Map<string, Decompressor>();
+    private blockDictDecompressorCache = new Map<number, Decompressor>();
+    private cacheCleanupTimer: NodeJS.Timeout | null = null;
 
     constructor(db: sqlite3.Database, isReadonly: boolean, hasDebug: boolean) {
         this.db = db;
         this.isReadonly = isReadonly;
         this.hasDebug = hasDebug;
+
+        // Initialize compression
+        this.compressor = new Compressor();
+        this.compressor.setParameters({ compressionLevel: ZSTD_COMPRESSION_LEVEL });
+        this.decompressor = new Decompressor();
 
         if (!isReadonly) {
             this.initSchema();
@@ -23,6 +48,75 @@ export class BlocksDBHelper {
         } else if (storedHasDebug !== (hasDebug ? 1 : 0)) {
             throw new Error(`Database hasDebug mismatch: stored=${storedHasDebug}, provided=${hasDebug}`);
         }
+
+        // Start cache cleanup timer for all instances (readers need it too)
+        this.startCacheCleanupTimer();
+    }
+
+    private compressJson(data: any): Buffer {
+        const jsonString = JSON.stringify(data);
+        const jsonBuffer = Buffer.from(jsonString);
+        return this.compressor.compress(jsonBuffer);
+    }
+
+    private decompressJson(compressedData: Buffer): any {
+        const decompressedBuffer = this.decompressor.decompress(compressedData);
+        const jsonString = decompressedBuffer.toString();
+        return JSON.parse(jsonString);
+    }
+
+    private decompressJsonWithDict(compressedData: Buffer, txNum: number, dictType: 'data' | 'traces' = 'data'): any {
+        // Determine which batch this transaction belongs to (tx_num starts at 1)
+        const batchNum = Math.floor((txNum - 1) / COMPRESSION_BATCH_SIZE);
+
+        // Try to get a dictionary-enabled decompressor
+        const dictDecompressor = this.getOrCreateDictDecompressor(batchNum, dictType);
+
+        // Use dictionary decompressor if available, otherwise fall back to regular decompression
+        const decompressor = dictDecompressor || this.decompressor;
+        const decompressedBuffer = decompressor.decompress(compressedData);
+        const jsonString = decompressedBuffer.toString();
+        return JSON.parse(jsonString);
+    }
+
+    private decompressBlockWithDict(compressedData: Buffer, blockNumber: number): any {
+        // Determine which batch this block belongs to
+        const batchNum = Math.floor(blockNumber / COMPRESSION_BATCH_SIZE);
+
+        // Try to get a dictionary-enabled decompressor for blocks
+        const dictDecompressor = this.getOrCreateBlockDictDecompressor(batchNum);
+
+        // Use dictionary decompressor if available, otherwise fall back to regular decompression
+        const decompressor = dictDecompressor || this.decompressor;
+        const decompressedBuffer = decompressor.decompress(compressedData);
+        const jsonString = decompressedBuffer.toString();
+        return JSON.parse(jsonString);
+    }
+
+    private getOrCreateBlockDictDecompressor(batchNum: number): Decompressor | null {
+        // Check cache first
+        let decompressor = this.blockDictDecompressorCache.get(batchNum);
+        if (decompressor) {
+            return decompressor;
+        }
+
+        // Load dictionary from database
+        const dictRow = this.db.prepare(
+            'SELECT dict FROM block_compression_dicts WHERE batch_num = ?'
+        ).get(batchNum) as any;
+
+        if (!dictRow) {
+            return null;
+        }
+
+        // Create new decompressor with dictionary
+        decompressor = new Decompressor();
+        decompressor.loadDictionary(dictRow.dict);
+
+        // Cache it
+        this.blockDictDecompressorCache.set(batchNum, decompressor);
+
+        return decompressor;
     }
 
     getEvmChainId(): number {
@@ -98,9 +192,356 @@ export class BlocksDBHelper {
         return this.getIntValue('blockchain_latest_block', -1);
     }
 
+    public performCompressionMaintenance(): void {
+        if (this.isReadonly) {
+            console.log('Skipping compression maintenance in readonly mode');
+            return;
+        }
+
+        const totalTxCount = this.getTxCount();
+        const completeBatches = Math.floor(totalTxCount / COMPRESSION_BATCH_SIZE);
+
+        if (completeBatches === 0) {
+            console.log(`Not enough transactions for compression maintenance. Need ${COMPRESSION_BATCH_SIZE}, have ${totalTxCount}`);
+            return;
+        }
+
+        const lastCompressedBatchNum = this.getIntValue('last_compressed_batch_num', -1);
+        const nextBatchNum = lastCompressedBatchNum + 1;
+
+        if (nextBatchNum >= completeBatches) {
+            console.log('All complete batches are already compressed');
+            return;
+        }
+
+        // tx_num starts at 1, so batch 0 covers tx_num 1-100000, batch 1 covers 100001-200000, etc.
+        const batchStartNum = nextBatchNum * COMPRESSION_BATCH_SIZE + 1;
+        const batchEndNum = batchStartNum + COMPRESSION_BATCH_SIZE - 1;
+
+        console.log(`Starting compression maintenance for batch ${nextBatchNum} (tx_num ${batchStartNum} to ${batchEndNum})`);
+
+        try {
+            // Create temp directory for samples
+            const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'frostbyte-dict-'));
+
+            try {
+                const start = performance.now();
+                // Get the batch of transactions to recompress
+                const stmt = this.db.prepare(
+                    'SELECT tx_num, data FROM txs WHERE tx_num >= ? AND tx_num <= ? ORDER BY tx_num ASC'
+                );
+                const rows = stmt.all(batchStartNum, batchEndNum) as any[];
+
+                if (rows.length === 0) {
+                    throw new Error(`No transactions found in range ${batchStartNum} to ${batchEndNum}`);
+                }
+
+                console.log(`Processing ${rows.length} transactions (expected up to ${COMPRESSION_BATCH_SIZE})`);
+
+                // Sample every Nth transaction for dictionary training
+                let sampleCount = 0;
+                for (let i = 0; i < rows.length; i += SAMPLE_EVERY_NTH_TX) {
+                    const row = rows[i]!;
+                    const txData = this.decompressJson(row.data);
+                    const jsonStr = JSON.stringify(txData);
+                    fs.writeFileSync(path.join(tempDir, `sample_data_${sampleCount}.json`), jsonStr);
+                    sampleCount++;
+                }
+
+                console.log(`Wrote ${sampleCount} data samples for dictionary training`);
+
+                // Train dictionary for transaction data
+                const dataDictPath = path.join(tempDir, 'data_dict.zstd');
+                const maxDictSize = DICT_SIZE_KB * 1024;
+                execSync(
+                    `zstd --train "${tempDir}"/sample_data_*.json -o "${dataDictPath}" --maxdict=${maxDictSize} --dictID=${nextBatchNum}`,
+                    { stdio: 'pipe' }
+                );
+
+                // Read the trained data dictionary
+                const dataDictBuffer = fs.readFileSync(dataDictPath);
+                console.log(`Trained data dictionary size: ${dataDictBuffer.length} bytes`);
+
+                // If hasDebug, also train dictionary for traces
+                let tracesDictBuffer: Buffer | null = null;
+                if (this.hasDebug) {
+                    // Get traces for sampled transactions
+                    let traceSampleCount = 0;
+                    const traceStmt = this.db.prepare(
+                        'SELECT traces FROM txs WHERE tx_num >= ? AND tx_num <= ? AND traces IS NOT NULL ORDER BY tx_num ASC'
+                    );
+                    const traceRows = traceStmt.all(batchStartNum, batchEndNum) as any[];
+
+                    for (let i = 0; i < traceRows.length; i += SAMPLE_EVERY_NTH_TX) {
+                        const row = traceRows[i];
+                        if (row && row.traces) {
+                            const traceData = this.decompressJson(row.traces);
+                            const jsonStr = JSON.stringify(traceData);
+                            fs.writeFileSync(path.join(tempDir, `sample_traces_${traceSampleCount}.json`), jsonStr);
+                            traceSampleCount++;
+                        }
+                    }
+
+                    if (traceSampleCount > 0) {
+                        console.log(`Wrote ${traceSampleCount} trace samples for dictionary training`);
+
+                        // Train dictionary for traces
+                        const tracesDictPath = path.join(tempDir, 'traces_dict.zstd');
+                        execSync(
+                            `zstd --train "${tempDir}"/sample_traces_*.json -o "${tracesDictPath}" --maxdict=${maxDictSize} --dictID=${nextBatchNum}`,
+                            { stdio: 'pipe' }
+                        );
+
+                        tracesDictBuffer = fs.readFileSync(tracesDictPath);
+                        console.log(`Trained traces dictionary size: ${tracesDictBuffer.length} bytes`);
+                    }
+                }
+
+                // Recompress all transactions in the batch with the new dictionaries
+                const dataCompressor = new Compressor();
+                dataCompressor.setParameters({ compressionLevel: ZSTD_COMPRESSION_LEVEL });
+                dataCompressor.loadDictionary(dataDictBuffer);
+
+                const tracesCompressor = tracesDictBuffer ? new Compressor() : null;
+                if (tracesCompressor && tracesDictBuffer) {
+                    tracesCompressor.setParameters({ compressionLevel: ZSTD_COMPRESSION_LEVEL });
+                    tracesCompressor.loadDictionary(tracesDictBuffer);
+                }
+
+                const recompressedData: Array<{ tx_num: number; data: Buffer; traces?: Buffer }> = [];
+
+                // Re-fetch all rows with traces if needed
+                const fullStmt = this.hasDebug
+                    ? this.db.prepare('SELECT tx_num, data, traces FROM txs WHERE tx_num >= ? AND tx_num <= ? ORDER BY tx_num ASC')
+                    : this.db.prepare('SELECT tx_num, data FROM txs WHERE tx_num >= ? AND tx_num <= ? ORDER BY tx_num ASC');
+                const fullRows = fullStmt.all(batchStartNum, batchEndNum) as any[];
+
+                for (const row of fullRows) {
+                    const txData = this.decompressJson(row.data);
+                    const recompressed = dataCompressor.compress(Buffer.from(JSON.stringify(txData)));
+
+                    const item: { tx_num: number; data: Buffer; traces?: Buffer } = {
+                        tx_num: row.tx_num,
+                        data: recompressed
+                    };
+
+                    if (this.hasDebug && row.traces && tracesCompressor) {
+                        const traceData = this.decompressJson(row.traces);
+                        item.traces = tracesCompressor.compress(Buffer.from(JSON.stringify(traceData)));
+                    }
+
+                    recompressedData.push(item);
+                }
+
+                // Start transaction to update everything atomically
+                const updateTransaction = this.db.transaction(() => {
+                    // Update all transaction data
+                    const updateStmt = this.hasDebug
+                        ? this.db.prepare('UPDATE txs SET data = ?, traces = ? WHERE tx_num = ?')
+                        : this.db.prepare('UPDATE txs SET data = ? WHERE tx_num = ?');
+
+                    for (const item of recompressedData) {
+                        if (this.hasDebug && item.traces) {
+                            updateStmt.run(item.data, item.traces, item.tx_num);
+                        } else {
+                            updateStmt.run(item.data, item.tx_num);
+                        }
+                    }
+
+                    // Store the dictionaries
+                    const insertDictStmt = this.db.prepare(
+                        'INSERT INTO tx_compression_dicts (batch_num, dict_type, dict) VALUES (?, ?, ?)'
+                    );
+                    insertDictStmt.run(nextBatchNum, 'data', dataDictBuffer);
+
+                    if (tracesDictBuffer) {
+                        insertDictStmt.run(nextBatchNum, 'traces', tracesDictBuffer);
+                    }
+
+                    // Update progress
+                    this.setIntValue('last_compressed_batch_num', nextBatchNum);
+                });
+
+                updateTransaction();
+
+                console.log(`Successfully compressed batch ${nextBatchNum} with dictionary in ${Math.round(((performance.now() - start) / 1000))}s`);
+            } finally {
+                // Clean up temp directory
+                fs.rmSync(tempDir, { recursive: true, force: true });
+            }
+        } catch (error) {
+            console.error('Error during compression maintenance:', error);
+            throw error;
+        }
+    }
+
+    public performBlockCompressionMaintenance(): void {
+        if (this.isReadonly) {
+            console.log('Skipping block compression maintenance in readonly mode');
+            return;
+        }
+
+        const lastStoredBlockNum = this.getLastStoredBlockNumber();
+        if (lastStoredBlockNum < 0) {
+            console.log('No blocks stored yet');
+            return;
+        }
+
+        const totalBlocks = lastStoredBlockNum + 1;
+        const completeBatches = Math.floor(totalBlocks / COMPRESSION_BATCH_SIZE);
+
+        if (completeBatches === 0) {
+            console.log(`Not enough blocks for compression maintenance. Need ${COMPRESSION_BATCH_SIZE}, have ${totalBlocks}`);
+            return;
+        }
+
+        const lastCompressedBatchNum = this.getIntValue('last_compressed_batch_num', -1);
+        const nextBatchNum = lastCompressedBatchNum + 1;
+
+        if (nextBatchNum >= completeBatches) {
+            console.log('All complete block batches are already compressed');
+            return;
+        }
+
+        const batchStartNum = nextBatchNum * COMPRESSION_BATCH_SIZE;
+        const batchEndNum = Math.min(batchStartNum + COMPRESSION_BATCH_SIZE - 1, lastStoredBlockNum);
+
+        console.log(`Starting block compression maintenance for batch ${nextBatchNum} (block ${batchStartNum} to ${batchEndNum})`);
+
+        try {
+            // Create temp directory for samples
+            const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'frostbyte-block-dict-'));
+
+            try {
+                const start = performance.now();
+                // Get the batch of blocks to recompress
+                const stmt = this.db.prepare(
+                    'SELECT number, data FROM blocks WHERE number >= ? AND number <= ? ORDER BY number ASC'
+                );
+                const rows = stmt.all(batchStartNum, batchEndNum) as any[];
+
+                console.log(`Processing ${rows.length} blocks`);
+
+                // Sample every Nth block for dictionary training
+                let sampleCount = 0;
+                for (let i = 0; i < rows.length; i += SAMPLE_EVERY_NTH_TX) {
+                    const row = rows[i]!;
+                    const blockData = this.decompressJson(row.data);
+                    const jsonStr = JSON.stringify(blockData);
+                    fs.writeFileSync(path.join(tempDir, `sample_block_${sampleCount}.json`), jsonStr);
+                    sampleCount++;
+                }
+
+                console.log(`Wrote ${sampleCount} block samples for dictionary training`);
+
+                // Train dictionary for block data
+                const dictPath = path.join(tempDir, 'block_dict.zstd');
+                const maxDictSize = DICT_SIZE_KB * 1024;
+                execSync(
+                    `zstd --train "${tempDir}"/sample_block_*.json -o "${dictPath}" --maxdict=${maxDictSize} --dictID=${nextBatchNum}`,
+                    { stdio: 'pipe' }
+                );
+
+                // Read the trained dictionary
+                const dictBuffer = fs.readFileSync(dictPath);
+                console.log(`Trained block dictionary size: ${dictBuffer.length} bytes`);
+
+                // Recompress all blocks in the batch with the new dictionary
+                const compressor = new Compressor();
+                compressor.setParameters({ compressionLevel: ZSTD_COMPRESSION_LEVEL });
+                compressor.loadDictionary(dictBuffer);
+
+                const recompressedData: Array<{ number: number; data: Buffer }> = [];
+
+                for (const row of rows) {
+                    const blockData = this.decompressJson(row.data);
+                    const recompressed = compressor.compress(Buffer.from(JSON.stringify(blockData)));
+                    recompressedData.push({
+                        number: row.number,
+                        data: recompressed
+                    });
+                }
+
+                // Start transaction to update everything atomically
+                const updateTransaction = this.db.transaction(() => {
+                    // Update all block data
+                    const updateStmt = this.db.prepare('UPDATE blocks SET data = ? WHERE number = ?');
+                    for (const item of recompressedData) {
+                        updateStmt.run(item.data, item.number);
+                    }
+
+                    // Store the dictionary
+                    const insertDictStmt = this.db.prepare(
+                        'INSERT INTO block_compression_dicts (batch_num, dict) VALUES (?, ?)'
+                    );
+                    insertDictStmt.run(nextBatchNum, dictBuffer);
+
+                    // Update progress
+                    this.setIntValue('last_compressed_batch_num', nextBatchNum);
+                });
+
+                updateTransaction();
+
+                const elapsed = performance.now() - start;
+                console.log(`Successfully compressed block batch ${nextBatchNum} with dictionary in ${Math.round(((elapsed) / 1000))}s`);
+            } finally {
+                // Clean up temp directory
+                fs.rmSync(tempDir, { recursive: true, force: true });
+            }
+        } catch (error) {
+            console.error('Error during block compression maintenance:', error);
+            throw error;
+        }
+    }
+
+    private startCacheCleanupTimer(): void {
+        if (this.cacheCleanupTimer) {
+            clearInterval(this.cacheCleanupTimer);
+        }
+        this.cacheCleanupTimer = setInterval(() => {
+            this.dictDecompressorCache.clear();
+            this.blockDictDecompressorCache.clear();
+            console.log('Cleared dictionary decompressor caches');
+        }, CACHE_CLEAR_INTERVAL_MS);
+    }
+
+    private getOrCreateDictDecompressor(batchNum: number, dictType: 'data' | 'traces'): Decompressor | null {
+        // Check cache first - use composite key
+        const cacheKey = `${batchNum}_${dictType}`;
+        let decompressor = this.dictDecompressorCache.get(cacheKey);
+        if (decompressor) {
+            return decompressor;
+        }
+
+        // Load dictionary from database
+        const dictRow = this.db.prepare(
+            'SELECT dict FROM tx_compression_dicts WHERE batch_num = ? AND dict_type = ?'
+        ).get(batchNum, dictType) as any;
+
+        if (!dictRow) {
+            return null;
+        }
+
+        // Create new decompressor with dictionary
+        decompressor = new Decompressor();
+        decompressor.loadDictionary(dictRow.dict);
+
+        // Cache it with composite key
+        this.dictDecompressorCache.set(cacheKey, decompressor);
+
+        return decompressor;
+    }
+
     close(): void {
         // Clear cached statements (better-sqlite3 handles cleanup automatically)
         this.statementCache.clear();
+
+        // Clear cache cleanup timer
+        if (this.cacheCleanupTimer) {
+            clearInterval(this.cacheCleanupTimer);
+            this.cacheCleanupTimer = null;
+        }
+
         this.db.close();
     }
 
@@ -122,8 +563,8 @@ export class BlocksDBHelper {
         delete (blockWithoutTxs as any).transactions;
         delete (blockWithoutTxs as any).logsBloom;
 
-        // Store block data as JSON
-        const blockData = JSON.stringify(blockWithoutTxs);
+        // Store block data as compressed JSON
+        const blockData = this.compressJson(blockWithoutTxs);
 
         // Extract block hash (remove '0x' prefix) and take first 5 bytes
         const blockHash = storedBlock.block.hash.slice(2);
@@ -158,11 +599,11 @@ export class BlocksDBHelper {
                 blockTs: Number(storedBlock.block.timestamp)
             };
 
-            const txDataJson = JSON.stringify(txData);
+            const txDataCompressed = this.compressJson(txData);
             const txHashPrefix = Buffer.from(tx.hash.slice(2), 'hex').slice(0, 5);
 
             // Find the corresponding trace for this transaction
-            let traceDataJson: string | null = null;
+            let traceDataCompressed: Buffer | null = null;
             if (this.hasDebug && storedBlock.traces) {
                 const traces = storedBlock.traces.filter(t => t.txHash === tx.hash);
                 if (traces.length === 0) {
@@ -172,10 +613,10 @@ export class BlocksDBHelper {
                     throw new Error(`Multiple traces found for tx ${tx.hash}: ${traces.length} traces`);
                 }
                 const trace = traces[0]!;
-                traceDataJson = JSON.stringify(trace);
+                traceDataCompressed = this.compressJson(trace);
             }
 
-            const insertResult = insertTx.run(txHashPrefix, blockNumber, txDataJson, traceDataJson);
+            const insertResult = insertTx.run(txHashPrefix, blockNumber, txDataCompressed, traceDataCompressed);
             const txNum = insertResult.lastInsertRowid as number;
 
             // Check if this transaction created a contract
@@ -233,7 +674,7 @@ export class BlocksDBHelper {
             `CREATE TABLE IF NOT EXISTS blocks (
                 number INTEGER PRIMARY KEY,
                 hash BLOB NOT NULL,
-                data TEXT NOT NULL
+                data BLOB NOT NULL
             )`,
             `CREATE INDEX IF NOT EXISTS idx_blocks_hash ON blocks(hash)`,
 
@@ -241,8 +682,8 @@ export class BlocksDBHelper {
                 tx_num INTEGER PRIMARY KEY AUTOINCREMENT,
                 hash BLOB NOT NULL,
                 block_num INTEGER NOT NULL,
-                data TEXT NOT NULL,
-                traces TEXT
+                data BLOB NOT NULL,
+                traces BLOB
             )`,
             `CREATE INDEX IF NOT EXISTS idx_txs_hash ON txs(hash)`,
             `CREATE INDEX IF NOT EXISTS idx_txs_block_num ON txs(block_num)`,
@@ -261,7 +702,20 @@ export class BlocksDBHelper {
                 tx_num INTEGER NOT NULL,
                 topic_hash BLOB NOT NULL
             )`,
-            `CREATE INDEX IF NOT EXISTS idx_tx_topics_topic_hash_txnum ON tx_topics(topic_hash, tx_num)`
+            `CREATE INDEX IF NOT EXISTS idx_tx_topics_topic_hash_txnum ON tx_topics(topic_hash, tx_num)`,
+
+            `CREATE TABLE IF NOT EXISTS tx_compression_dicts (
+                batch_num INTEGER NOT NULL,
+                dict_type TEXT NOT NULL, -- 'data' or 'traces'
+                dict BLOB NOT NULL,
+                PRIMARY KEY (batch_num, dict_type)
+            )`,
+            `CREATE INDEX IF NOT EXISTS idx_tx_compression_dicts_batch_num ON tx_compression_dicts(batch_num)`,
+
+            `CREATE TABLE IF NOT EXISTS block_compression_dicts (
+                batch_num INTEGER PRIMARY KEY,
+                dict BLOB NOT NULL
+            )`
         ];
 
         for (const query of queries) {
@@ -294,11 +748,11 @@ export class BlocksDBHelper {
             const placeholders = topicHashPrefixes.map(() => '?').join(',');
 
             // First query: Get just the tx_nums using the indexed table (fast)
-            const txNumQuery = `SELECT DISTINCT tt.tx_num 
-                               FROM tx_topics tt 
-                               WHERE tt.topic_hash IN (${placeholders}) 
-                               AND tt.tx_num > ? 
-                               ORDER BY tt.tx_num ASC 
+            const txNumQuery = `SELECT DISTINCT tt.tx_num
+                               FROM tx_topics tt
+                               WHERE tt.topic_hash IN (${placeholders})
+                               AND tt.tx_num > ?
+                               ORDER BY tt.tx_num ASC
                                LIMIT ?`;
 
             const startTime = performance.now();
@@ -337,7 +791,7 @@ export class BlocksDBHelper {
             const traces: RpcTraceResult[] = [];
 
             for (const row of dataRows) {
-                const txData = JSON.parse(row.data);
+                const txData = this.decompressJsonWithDict(row.data, row.tx_num);
                 const storedTx: StoredTx = {
                     txNum: row.tx_num,
                     ...txData
@@ -345,7 +799,7 @@ export class BlocksDBHelper {
                 txs.push(storedTx);
 
                 if (this.hasDebug && includeTraces && row.traces) {
-                    const trace = JSON.parse(row.traces) as RpcTraceResult;
+                    const trace = this.decompressJsonWithDict(row.traces, row.tx_num, 'traces') as RpcTraceResult;
                     traces.push(trace);
                 }
             }
@@ -372,7 +826,7 @@ export class BlocksDBHelper {
             const traces: RpcTraceResult[] = [];
 
             for (const row of rows) {
-                const txData = JSON.parse(row.data);
+                const txData = this.decompressJsonWithDict(row.data, row.tx_num);
                 const storedTx: StoredTx = {
                     txNum: row.tx_num,
                     ...txData
@@ -380,7 +834,7 @@ export class BlocksDBHelper {
                 txs.push(storedTx);
 
                 if (this.hasDebug && includeTraces && row.traces) {
-                    const trace = JSON.parse(row.traces) as RpcTraceResult;
+                    const trace = this.decompressJsonWithDict(row.traces, row.tx_num, 'traces') as RpcTraceResult;
                     traces.push(trace);
                 }
             }
@@ -414,7 +868,7 @@ export class BlocksDBHelper {
 
             // Handle potential collisions by checking the full hash in the data
             for (const row of rows) {
-                const storedData = JSON.parse(row.data) as Omit<RpcBlock, 'transactions'>;
+                const storedData = this.decompressBlockWithDict(row.data, row.number) as Omit<RpcBlock, 'transactions'>;
                 if (storedData.hash.toLowerCase() === ('0x' + hashStr).toLowerCase()) {
                     blockRow = row;
                     blockNumber = row.number;
@@ -431,8 +885,8 @@ export class BlocksDBHelper {
             return null;
         }
 
-        // Parse the block data (without transactions)
-        const storedBlock = JSON.parse(blockRow.data) as Omit<RpcBlock, 'transactions'>;
+        // Parse the block data (without transactions) using dictionary decompression
+        const storedBlock = this.decompressBlockWithDict(blockRow.data, blockNumber) as Omit<RpcBlock, 'transactions'>;
 
         // Fetch all transactions for this block ordered by tx_num
         const txStmt = this.db.prepare('SELECT data FROM txs WHERE block_num = ? ORDER BY tx_num ASC');
@@ -442,7 +896,7 @@ export class BlocksDBHelper {
         const transactions: RpcBlockTransaction[] = [];
 
         for (const txRow of txRows) {
-            const txData = JSON.parse(txRow.data);
+            const txData = this.decompressJson(txRow.data);
             transactions.push(txData.tx);
         }
 
@@ -463,7 +917,7 @@ export class BlocksDBHelper {
 
         // Handle potential collisions by checking the full hash in the data
         for (const row of rows) {
-            const txData = JSON.parse(row.data);
+            const txData = this.decompressJson(row.data);
             if (txData.tx.hash.toLowerCase() === ('0x' + hashStr).toLowerCase()) {
                 return txData.receipt;
             }
@@ -479,7 +933,7 @@ export class BlocksDBHelper {
         const traces: RpcTraceResult[] = [];
         for (const row of rows) {
             if (!row.traces) continue;
-            const trace = JSON.parse(row.traces) as RpcTraceResult;
+            const trace = this.decompressJson(row.traces) as RpcTraceResult;
             traces.push(trace);
         }
         return traces;

@@ -148,21 +148,30 @@ function createSqliteDb(config: CreateDbConfig & { chainId: string }): Database.
     console.log(`Database ${dbName} ready at ${dbPath} (${config.readonly ? 'readonly' : 'read-write'})`);
 
     // Enable WAL mode for better concurrency
-    db.pragma('journal_mode = WAL');
+
+    // Enable incremental auto-vacuum (must be set before creating any tables)
 
     if (config.readonly) {
         // Read-only optimizations
         db.pragma('query_only = ON');
-        db.pragma('cache_size = -32768'); // 32MB cache per database
-        db.pragma('mmap_size = 2199023255552'); // 2TB mmap
+        db.pragma('cache_size = -1024'); // 1MB cache
         db.pragma('temp_store = MEMORY');
     } else {
-        // Read-write optimizations
+        db.pragma('journal_mode = WAL');
         db.pragma('synchronous = NORMAL');
-        db.pragma('cache_size = -32768'); // 32MB cache per database
-        db.pragma('mmap_size = 2199023255552'); // 2TB mmap
+        db.pragma('cache_size = -16384'); // 16MB
         db.pragma('temp_store = MEMORY');
         db.pragma('optimize'); // Run optimize on database connection
+        db.pragma('auto_vacuum = INCREMENTAL');
+
+        // Incremental vacuum every second (200 pages = ~800KB)
+        setInterval(() => {
+            try {
+                db.pragma('incremental_vacuum(200)');
+            } catch (error) {
+                console.error('Error during periodic incremental vacuum:', error);
+            }
+        }, 1000);
     }
 
     return db;

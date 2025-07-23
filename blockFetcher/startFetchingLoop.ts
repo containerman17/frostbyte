@@ -55,7 +55,15 @@ export async function startFetchingLoop(blockDB: BlocksDBHelper, batchRpc: Batch
         try {
             const start = performance.now();
             const blockNumbers = Array.from({ length: endBlock - startBlock + 1 }, (_, i) => startBlock + i);
-            const blocks = await batchRpc.getBlocksWithReceipts(blockNumbers);
+            const blocksPromise = batchRpc.getBlocksWithReceipts(blockNumbers);
+            await new Promise(resolve => setTimeout(resolve, 100));
+            blockDB.performCompressionMaintenance();
+            await new Promise(resolve => setTimeout(resolve, 100));
+            blockDB.performBlockCompressionMaintenance();
+
+            //now actually await
+            const blocks = await blocksPromise;
+
             blockDB.storeBlocks(blocks);
             lastStoredBlock = endBlock;
 
