@@ -11,7 +11,7 @@ const ZSTD_COMPRESSION_LEVEL = 1;
 
 // Compression maintenance constants
 const COMPRESSION_BATCH_SIZE = 100000; // Process 100k txs per maintenance call
-const SAMPLE_EVERY_NTH_TX = 3; // Sample every 3rd tx for dictionary training
+const SAMPLE_EVERY_NTH_TX = 1; // Use every tx for dictionary training (no sampling)
 const DICT_SIZE_KB = 110; // Dictionary size in KB
 const CACHE_CLEAR_INTERVAL_MS = 60000; // Clear decompressor cache every minute
 
@@ -253,8 +253,16 @@ export class BlocksDBHelper {
                 // Train dictionary for transaction data
                 const dataDictPath = path.join(tempDir, 'data_dict.zstd');
                 const maxDictSize = DICT_SIZE_KB * 1024;
+
+                // Create a file list to avoid "argument list too long" error
+                const dataFileListPath = path.join(tempDir, 'data_files.txt');
+                const dataFiles = fs.readdirSync(tempDir)
+                    .filter(f => f.startsWith('sample_data_') && f.endsWith('.json'))
+                    .map(f => path.join(tempDir, f));
+                fs.writeFileSync(dataFileListPath, dataFiles.join('\n'));
+
                 execSync(
-                    `zstd --train "${tempDir}"/sample_data_*.json -o "${dataDictPath}" --maxdict=${maxDictSize} --dictID=${nextBatchNum}`,
+                    `zstd --train -o "${dataDictPath}" --maxdict=${maxDictSize} --dictID=${nextBatchNum} --filelist="${dataFileListPath}"`,
                     { stdio: 'pipe' }
                 );
 
@@ -287,8 +295,16 @@ export class BlocksDBHelper {
 
                         // Train dictionary for traces
                         const tracesDictPath = path.join(tempDir, 'traces_dict.zstd');
+
+                        // Create a file list to avoid "argument list too long" error
+                        const tracesFileListPath = path.join(tempDir, 'traces_files.txt');
+                        const tracesFiles = fs.readdirSync(tempDir)
+                            .filter(f => f.startsWith('sample_traces_') && f.endsWith('.json'))
+                            .map(f => path.join(tempDir, f));
+                        fs.writeFileSync(tracesFileListPath, tracesFiles.join('\n'));
+
                         execSync(
-                            `zstd --train "${tempDir}"/sample_traces_*.json -o "${tracesDictPath}" --maxdict=${maxDictSize} --dictID=${nextBatchNum}`,
+                            `zstd --train -o "${tracesDictPath}" --maxdict=${maxDictSize} --dictID=${nextBatchNum} --filelist="${tracesFileListPath}"`,
                             { stdio: 'pipe' }
                         );
 
@@ -437,8 +453,16 @@ export class BlocksDBHelper {
                 // Train dictionary for block data
                 const dictPath = path.join(tempDir, 'block_dict.zstd');
                 const maxDictSize = DICT_SIZE_KB * 1024;
+
+                // Create a file list to avoid "argument list too long" error
+                const fileListPath = path.join(tempDir, 'block_files.txt');
+                const blockFiles = fs.readdirSync(tempDir)
+                    .filter(f => f.startsWith('sample_block_') && f.endsWith('.json'))
+                    .map(f => path.join(tempDir, f));
+                fs.writeFileSync(fileListPath, blockFiles.join('\n'));
+
                 execSync(
-                    `zstd --train "${tempDir}"/sample_block_*.json -o "${dictPath}" --maxdict=${maxDictSize} --dictID=${nextBatchNum}`,
+                    `zstd --train -o "${dictPath}" --maxdict=${maxDictSize} --dictID=${nextBatchNum} --filelist="${fileListPath}"`,
                     { stdio: 'pipe' }
                 );
 
