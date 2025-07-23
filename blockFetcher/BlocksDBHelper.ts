@@ -60,9 +60,14 @@ export class BlocksDBHelper {
     }
 
     private decompressJson(compressedData: Buffer): any {
-        const decompressedBuffer = this.decompressor.decompress(compressedData);
-        const jsonString = decompressedBuffer.toString();
-        return JSON.parse(jsonString);
+        try {
+            const decompressedBuffer = this.decompressor.decompress(compressedData);
+            const jsonString = decompressedBuffer.toString();
+            return JSON.parse(jsonString);
+        } catch (error) {
+            console.error('[BlocksDBHelper] decompressJson error:', error);
+            throw error;
+        }
     }
 
     private decompressJsonWithDict(compressedData: Buffer, txNum: number, dictType: 'data' | 'traces' = 'data'): any {
@@ -913,14 +918,15 @@ export class BlocksDBHelper {
         const storedBlock = this.decompressBlockWithDict(blockRow.data, blockNumber) as Omit<RpcBlock, 'transactions'>;
 
         // Fetch all transactions for this block ordered by tx_num
-        const txStmt = this.db.prepare('SELECT data FROM txs WHERE block_num = ? ORDER BY tx_num ASC');
+        const txStmt = this.db.prepare('SELECT tx_num, data FROM txs WHERE block_num = ? ORDER BY tx_num ASC');
         const txRows = txStmt.all(blockNumber) as any[];
 
         // Reconstruct the transactions array
         const transactions: RpcBlockTransaction[] = [];
 
         for (const txRow of txRows) {
-            const txData = this.decompressJson(txRow.data);
+            // Use dictionary-aware decompression with tx_num
+            const txData = this.decompressJsonWithDict(txRow.data, txRow.tx_num);
             transactions.push(txData.tx);
         }
 
@@ -936,12 +942,13 @@ export class BlocksDBHelper {
     getTxReceipt(txHash: string): StoredRpcTxReceipt | null {
         const hashStr = txHash.replace(/^0x/, '');
         const hashPrefix = Buffer.from(hashStr, 'hex').slice(0, 5);
-        const stmt = this.db.prepare('SELECT data FROM txs WHERE hash = ?');
+        const stmt = this.db.prepare('SELECT tx_num, data FROM txs WHERE hash = ?');
         const rows = stmt.all(hashPrefix) as any[];
 
         // Handle potential collisions by checking the full hash in the data
         for (const row of rows) {
-            const txData = this.decompressJson(row.data);
+            // Use dictionary-aware decompression with tx_num
+            const txData = this.decompressJsonWithDict(row.data, row.tx_num);
             if (txData.tx.hash.toLowerCase() === ('0x' + hashStr).toLowerCase()) {
                 return txData.receipt;
             }
@@ -951,13 +958,14 @@ export class BlocksDBHelper {
     }
 
     slow_getBlockTraces(blockNumber: number): RpcTraceResult[] {
-        const stmt = this.db.prepare('SELECT traces FROM txs WHERE block_num = ? ORDER BY tx_num ASC');
+        const stmt = this.db.prepare('SELECT tx_num, traces FROM txs WHERE block_num = ? ORDER BY tx_num ASC');
         const rows = stmt.all(blockNumber) as any[];
 
         const traces: RpcTraceResult[] = [];
         for (const row of rows) {
             if (!row.traces) continue;
-            const trace = this.decompressJson(row.traces) as RpcTraceResult;
+            // Use dictionary-aware decompression with tx_num for traces
+            const trace = this.decompressJsonWithDict(row.traces, row.tx_num, 'traces') as RpcTraceResult;
             traces.push(trace);
         }
         return traces;

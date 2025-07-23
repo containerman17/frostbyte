@@ -30,7 +30,6 @@ const module: IndexingPlugin = {
                 topicStats[topic] = (topicStats[topic] || 0) + 1;
             }
         }
-        console.log(topicStats);
     }
 };
 
