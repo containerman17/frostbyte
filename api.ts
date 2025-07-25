@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import chainsApiPlugin from './standardPlugins/chainsApi.js';
 import rpcApiPlugin from './standardPlugins/rpcApi.js';
+import replicationChainsApiPlugin from './standardPlugins/replicationChainsApi.js';
 import { ASSETS_DIR } from './config.js';
 import sqlite3 from 'better-sqlite3';
 
@@ -38,7 +39,7 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
     const indexingPlugins = await loadIndexingPlugins(getPluginDirs());
 
     // Standard API plugins are always included
-    const standardApiPlugins = [chainsApiPlugin, rpcApiPlugin];
+    const standardApiPlugins = [chainsApiPlugin, rpcApiPlugin, replicationChainsApiPlugin];
 
     // Combine standard and loaded API plugins
     const apiPlugins = [...standardApiPlugins, ...loadedApiPlugins];
