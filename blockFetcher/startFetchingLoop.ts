@@ -36,6 +36,10 @@ export async function startFetchingLoop(blockDB: BlocksDBHelper, batchRpc: Batch
             if (newLatestRemoteBlock === latestRemoteBlock) {
                 console.log(`[${chainName}] No new blocks, pause before checking again ${NO_BLOCKS_PAUSE_TIME / 1000}s`)
 
+                // Perform compression maintenance
+                blockDB.performCompressionMaintenance();
+                blockDB.performBlockCompressionMaintenance();
+
                 await new Promise(resolve => setTimeout(resolve, NO_BLOCKS_PAUSE_TIME));
                 continue;
             }
@@ -56,10 +60,6 @@ export async function startFetchingLoop(blockDB: BlocksDBHelper, batchRpc: Batch
             const start = performance.now();
             const blockNumbers = Array.from({ length: endBlock - startBlock + 1 }, (_, i) => startBlock + i);
             const blocksPromise = batchRpc.getBlocksWithReceipts(blockNumbers);
-            await new Promise(resolve => setTimeout(resolve, 100));
-            blockDB.performCompressionMaintenance();
-            await new Promise(resolve => setTimeout(resolve, 100));
-            blockDB.performBlockCompressionMaintenance();
 
             //now actually await
             const blocks = await blocksPromise;
