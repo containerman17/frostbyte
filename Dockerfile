@@ -28,7 +28,7 @@ RUN npm pack && \
 # Set NODE_PATH to include global modules so external plugins can resolve imports
 ENV NODE_PATH=/usr/local/lib/node_modules
 
-# Increase Node.js heap size to 8GB
-ENV NODE_OPTIONS="--max-old-space-size=8192"
+# Increase Node.js heap size to 16GB
+ENV NODE_OPTIONS="--max-old-space-size=16384"
 
 CMD ["frostbyte", "run", "--plugins-dir=/plugins", "--data-dir=/data"]

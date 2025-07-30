@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import { getCurrentChainConfig, getSqliteDb, getPluginDirs } from './config.js';
 import sqlite3 from 'better-sqlite3';
 
-const TXS_PER_LOOP = 100000;
+const TXS_PER_LOOP = 50000;
 const SLEEP_TIME = 3000;
 
 export interface IndexerOptions {
