@@ -530,7 +530,6 @@ export class BlocksDBHelper {
         this.cacheCleanupTimer = setInterval(() => {
             this.dictDecompressorCache.clear();
             this.blockDictDecompressorCache.clear();
-            console.log('Cleared dictionary decompressor caches');
         }, CACHE_CLEAR_INTERVAL_MS);
     }
 
