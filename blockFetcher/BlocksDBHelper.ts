@@ -207,7 +207,6 @@ export class BlocksDBHelper {
         const completeBatches = Math.floor(totalTxCount / COMPRESSION_BATCH_SIZE);
 
         if (completeBatches === 0) {
-            console.log(`Not enough transactions for compression maintenance. Need ${COMPRESSION_BATCH_SIZE}, have ${totalTxCount}`);
             return;
         }
 
@@ -412,7 +411,6 @@ export class BlocksDBHelper {
         const completeBatches = Math.floor(totalBlocks / COMPRESSION_BATCH_SIZE);
 
         if (completeBatches === 0) {
-            console.log(`Not enough blocks for compression maintenance. Need ${COMPRESSION_BATCH_SIZE}, have ${totalBlocks}`);
             return;
         }
 
