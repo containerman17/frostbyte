@@ -1,4 +1,5 @@
 import cluster, { Worker } from 'node:cluster';
+import os from 'node:os';
 import { BlocksDBHelper } from './blockFetcher/BlocksDBHelper';
 import { startFetchingLoop } from './blockFetcher/startFetchingLoop.js';
 import { BatchRpc } from './blockFetcher/BatchRpc.js';
@@ -17,6 +18,12 @@ process.on('uncaughtException', error => {
 if (cluster.isPrimary) {
     const roles = process.env['ROLES']?.split(',') || ['fetcher', 'api', 'indexer'];
     let apiStarted = false;
+
+    // Calculate number of API workers (CPU cores / 2, minimum 1)
+    const numCpus = os.cpus().length;
+    const numApiWorkers = Math.max(1, Math.floor(numCpus / 2));
+    console.log(`System has ${numCpus} CPU cores, will spawn ${numApiWorkers} API workers`);
+
     for (let config of CHAIN_CONFIGS) {
         // Spawn workers based on roles
         for (const role of roles) {
@@ -38,10 +45,12 @@ if (cluster.isPrimary) {
                 const worker = cluster.fork({ ROLE: role, CHAIN_ID: config.blockchainId });
                 console.log(`Spawned worker for role: ${role}, PID: ${worker.process.pid}, Chain ID: ${config.blockchainId}`);
             } else if (role === 'api') {
-                // API would be started as one process for all chains
+                // Spawn multiple API workers based on CPU cores
                 if (!apiStarted) {
-                    const worker = cluster.fork({ ROLE: role });
-                    console.log(`Spawned worker for role: ${role}, PID: ${worker.process.pid}`);
+                    for (let i = 0; i < numApiWorkers; i++) {
+                        const worker = cluster.fork({ ROLE: role });
+                        console.log(`Spawned API worker ${i + 1}/${numApiWorkers}, PID: ${worker.process.pid}`);
+                    }
                     apiStarted = true;
                 }
             }
