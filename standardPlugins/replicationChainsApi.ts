@@ -73,11 +73,11 @@ const module: ApiPlugin = {
                     rpcConfig: {
                         rpcUrl: `${baseUrl}/api/${config.evmChainId}/rpc`,
                         requestBatchSize: 20,
-                        maxConcurrentRequests: 300,
+                        maxConcurrentRequests: 50,
                         rps: 1000,
                         rpcSupportsDebug: config.rpcConfig.rpcSupportsDebug,
                         enableBatchSizeGrowth: false,
-                        blocksPerBatch: 100,
+                        blocksPerBatch: 1000,
                     }
                 });
             }
