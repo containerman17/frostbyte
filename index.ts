@@ -11,7 +11,7 @@ export type { ChainConfig, RpcConfigWithBlockSize } from './config';
 // Re-export third-party types that plugins receive
 export type { FastifyInstance } from 'fastify';
 
-// BlocksDBHelper is passed to handleTxBatch
+// BlocksDBHelper is passed to saveExtractedData
 export type { BlocksDBHelper } from './blockFetcher/BlocksDBHelper';
 
 export * as abiUtils from './lib/abiUtils';

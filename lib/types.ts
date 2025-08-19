@@ -20,7 +20,7 @@ export type TxBatch = {
 }
 
 /** Indexing plugin - processes blockchain data and stores in its own database */
-export interface IndexingPlugin {
+export interface IndexingPlugin<ExtractedDataType> {
     name: string;          // unique slug, no whitespaces only a-z0-9-_
     version: number;       // bump wipes the database
     usesTraces: boolean;   // if true, traces are included in the batch, that's 3x slower
@@ -29,10 +29,12 @@ export interface IndexingPlugin {
     /** Called once. Create tables here. */
     initialize: (db: sqlite3.Database) => void;
 
-    handleTxBatch: (
+    extractData: (batch: TxBatch) => ExtractedDataType;
+
+    saveExtractedData: (
         db: sqlite3.Database,
         blocksDb: BlocksDBHelper,
-        batch: TxBatch,
+        data: ExtractedDataType,
     ) => void;
 }
 

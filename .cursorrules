@@ -14,10 +14,10 @@ Do not add tags and summary field on fastify api specs.
 Indexers have to accumulate changes in ram and then dump to the database
 alltogether in the end.
 
-Transactions in handleTxBatch have tx.blockTs field
+Transactions in extractData have tx.blockTs field
 
-handleTxBatch are already wrapped in a tx, no need for tramsactions inside
-handleTxBatch
+saveExtractedData are already wrapped in a tx, no need for tramsactions inside
+saveExtractedData
 
 Any chain-specific requests should start with /{evmChainId}/
 

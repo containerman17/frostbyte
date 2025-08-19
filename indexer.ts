@@ -21,8 +21,8 @@ export interface SingleIndexerOptions extends IndexerOptions {
     indexerName: string;
 }
 
-async function startIndexer(
-    indexer: IndexingPlugin,
+async function startIndexer<T>(
+    indexer: IndexingPlugin<T>,
     blocksDb: BlocksDBHelper,
     chainId: string,
     exitWhenDone: boolean,
@@ -103,13 +103,16 @@ async function startIndexer(
 
         consecutiveEmptyBatches = 0;
 
-        // Handle transaction batch in SQLite transaction
-        const handleBatchTransaction = db.transaction(() => {
-            indexer.handleTxBatch(db, blocksDb, transactions);
+        // Extract data first (outside transaction for performance)
+        const extractedData = indexer.extractData(transactions);
+
+        // Save extracted data in SQLite transaction
+        const saveDataTransaction = db.transaction(() => {
+            indexer.saveExtractedData(db, blocksDb, extractedData);
             setIntValue(db, `lastIndexedTx_${name}`, transactions.txs[transactions.txs.length - 1]!.txNum);
         });
 
-        handleBatchTransaction();
+        saveDataTransaction();
 
         const indexingFinish = performance.now();
 

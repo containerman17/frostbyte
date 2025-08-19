@@ -17,9 +17,13 @@ export async function createPluginTemplate(name: string, pluginsDir: string, typ
     let template: string;
 
     if (type === 'indexing') {
-        template = `import { type IndexingPlugin, prepQueryCached } from "frostbyte-sdk";
+        template = `import { type IndexingPlugin } from "frostbyte-sdk";
 
-const module: IndexingPlugin = {
+type ExtractedData = {
+    txCount: number;
+}
+
+const module: IndexingPlugin<ExtractedData> = {
     name: "${name}",
     version: 1,
     usesTraces: false,
@@ -37,19 +41,26 @@ const module: IndexingPlugin = {
         db.exec(\`INSERT OR IGNORE INTO ${name}_data (id, total_count) VALUES (1, 0)\`);
     },
     
-    // Process transactions
-    handleTxBatch: (db, blocksDb, batch) => {
-        const txCount = batch.txs.length;
-        prepQueryCached(db, \`
+    // Extract data from transactions
+    extractData: (batch) => {
+        return {
+            txCount: batch.txs.length
+        };
+    },
+    
+    // Save extracted data to database
+    saveExtractedData: (db, blocksDb, data) => {
+        const stmt = db.prepare(\`
             UPDATE ${name}_data SET total_count = total_count + ? WHERE id = 1
-        \`).run(txCount);
+        \`);
+        stmt.run(data.txCount);
     }
 };
 
 export default module;
 `;
     } else {
-        template = `import { type ApiPlugin, prepQueryCached } from "frostbyte-sdk";
+        template = `import { type ApiPlugin } from "frostbyte-sdk";
 
 const module: ApiPlugin = {
     name: "${name}",
@@ -81,9 +92,10 @@ const module: ApiPlugin = {
             // Get the database for the indexer we depend on
             const db = dbCtx.getIndexerDbConnection(evmChainId, "${name}-indexer");
 
-            const result = prepQueryCached(db, \`
+            const stmt = db.prepare(\`
                 SELECT total_count FROM ${name}_indexer_data WHERE id = 1
-            \`).get() as { total_count: number } | undefined;
+            \`);
+            const result = stmt.get() as { total_count: number } | undefined;
 
             return {
                 totalCount: result?.total_count || 0

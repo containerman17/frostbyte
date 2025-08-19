@@ -3,13 +3,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-function isIndexingPlugin(plugin: any): plugin is IndexingPlugin {
+function isIndexingPlugin(plugin: any): plugin is IndexingPlugin<any> {
     return plugin &&
         typeof plugin.name === 'string' &&
         typeof plugin.version === 'number' &&
         typeof plugin.usesTraces === 'boolean' &&
         typeof plugin.initialize === 'function' &&
-        typeof plugin.handleTxBatch === 'function' &&
+        typeof plugin.extractData === 'function' &&
+        typeof plugin.saveExtractedData === 'function' &&
         !plugin.requiredIndexers; // API plugins have requiredIndexers
 }
 
@@ -19,11 +20,11 @@ function isApiPlugin(plugin: any): plugin is ApiPlugin {
         Array.isArray(plugin.requiredIndexers) &&
         typeof plugin.registerRoutes === 'function' &&
         !plugin.version && // API plugins don't have version
-        !plugin.handleTxBatch; // API plugins don't handle transactions
+        !plugin.extractData && !plugin.saveExtractedData; // API plugins don't handle transactions
 }
 
-export async function loadIndexingPlugins(pluginsDirs: string[]): Promise<IndexingPlugin[]> {
-    const plugins: IndexingPlugin[] = [];
+export async function loadIndexingPlugins(pluginsDirs: string[]): Promise<IndexingPlugin<any>[]> {
+    const plugins: IndexingPlugin<any>[] = [];
 
     for (const pluginsDir of pluginsDirs) {
         if (!fs.existsSync(pluginsDir)) {

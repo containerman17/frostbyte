@@ -78,7 +78,12 @@ database:
 ```typescript
 import type { IndexingPlugin } from "frostbyte-sdk";
 
-const module: IndexingPlugin = {
+type ExtractedData = {
+  // Define your extracted data structure
+  transactions: Array<{ from: string; value: bigint }>;
+};
+
+const module: IndexingPlugin<ExtractedData> = {
   name: "my-indexer",
   version: 1,
   usesTraces: false,
@@ -88,10 +93,20 @@ const module: IndexingPlugin = {
     db.exec(`CREATE TABLE IF NOT EXISTS my_data (...)`);
   },
 
-  // Called for each batch of transactions
-  handleTxBatch: (db, blocksDb, batch) => {
-    for (const tx of batch.txs) {
-      // Index transaction data
+  // Extract data from transaction batch
+  extractData: (batch) => {
+    const transactions = batch.txs.map(tx => ({
+      from: tx.receipt.from,
+      value: BigInt(tx.receipt.value),
+    }));
+    return { transactions };
+  },
+
+  // Save extracted data to database
+  saveExtractedData: (db, blocksDb, data) => {
+    const stmt = db.prepare(`INSERT INTO my_data (from_address, value) VALUES (?, ?)`);
+    for (const tx of data.transactions) {
+      stmt.run(tx.from, tx.value.toString());
     }
   },
 };
