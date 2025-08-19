@@ -12,7 +12,7 @@
     "dist"
   ],
   "scripts": {
-    "dev:start": "node --experimental-transform-types cli.ts run --plugins-dir ./examples/api,./examples/indexing --data-dir ./data",
+    "dev:start": "node cli.ts run --plugins-dir ./examples/api,./examples/indexing --data-dir ./data",
     "dev:indexer": "ROLES=indexer npm run dev:start",
     "dev:api": "ROLES=api npm run dev:start",
     "dev:fetcher": "ROLES=fetcher npm run dev:start",
