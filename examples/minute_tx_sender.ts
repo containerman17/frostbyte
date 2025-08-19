@@ -6,7 +6,7 @@ type MinuteTxSenderRow = {
 }
 
 const module: IndexingPlugin<MinuteTxSenderRow[]> = {
-    name: "nothing",
+    name: "minute_tx_sender",
     version: Math.floor(Math.random() * 1000000),
     usesTraces: false,
     // filterEvents: [
