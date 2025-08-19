@@ -16,7 +16,7 @@
     "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "noEmit": false,
+    "noEmit": true,
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
@@ -31,7 +31,8 @@
     "noPropertyAccessFromIndexSignature": true,
     "noUncheckedIndexedAccess": true,
     "allowUnreachableCode": false,
-    "allowUnusedLabels": false
+    "allowUnusedLabels": false,
+    "allowImportingTsExtensions": true
   },
   "include": [
     "**/*.ts",

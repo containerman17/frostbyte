@@ -1,14 +1,10 @@
-import path from 'path';
 import { BlocksDBHelper } from './blockFetcher/BlocksDBHelper.js';
 import { loadIndexingPlugins } from './lib/plugins.js';
 import { getIntValue, setIntValue } from './lib/dbHelper.js';
 import { IndexingPlugin } from './lib/types.js';
 import { getCurrentChainConfig, getSqliteDb, getPluginDirs, ChainConfig } from './config.js';
 import sqlite3 from 'better-sqlite3';
-import executeIndexingTask from './indexer_worker.js';
 import Piscina from 'piscina';
-
-console.log('Parent process execArgv:', process.execArgv);
 
 const piscina = new Piscina({
     filename: new URL('./indexer_worker.ts', import.meta.url).toString(),
