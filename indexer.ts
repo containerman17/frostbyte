@@ -1,12 +1,10 @@
 import { BlocksDBHelper } from './blockFetcher/BlocksDBHelper.js';
 import { loadIndexingPlugins } from './lib/plugins.js';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { getIntValue, setIntValue } from './lib/dbHelper.js';
-import { IndexingPlugin, TxBatch } from './lib/types.js';
-import fs from 'node:fs';
+import { IndexingPlugin } from './lib/types.js';
 import { getCurrentChainConfig, getSqliteDb, getPluginDirs, ChainConfig } from './config.js';
 import sqlite3 from 'better-sqlite3';
+import executeIndexingTask from './indexer_worker.js';
 
 const TXS_PER_LOOP = 50000;
 const SLEEP_TIME = 3000;
@@ -73,32 +71,23 @@ async function startSingleIndexer(indexer: IndexingPlugin<any>, db: sqlite3.Data
 
         // Fetch data from BlocksDBHelper (async operation)
         const getStart = performance.now();
-        const transactions = blocksDb.getTxBatch(lastIndexedTx, TXS_PER_LOOP, indexer.usesTraces, indexer.filterEvents);
-        const indexingStart = performance.now();
-        const hadSomethingToIndex = transactions.txs.length > 0;
+        const { extractedData, hadSomeData, lastIndexedTx: newLastIndexedTx, lastIndexedBlock, indexedTxs } = await executeIndexingTask<any>(chainConfig, name, indexer.version, lastIndexedTx, lastIndexedTx + TXS_PER_LOOP);
 
-        if (!hadSomethingToIndex) {
-            if (indexer.filterEvents) {
-                // Check if there are more transactions in the database that we haven't processed yet
-                //This is exclusively for filters
-                const totalTxCount = blocksDb.getTxCount();
-                if (totalTxCount > lastIndexedTx) {
-                    setIntValue(db, `lastIndexedTx_${name}`, totalTxCount);
-                }
-            }
-
-            // Sleep briefly before next iteration
+        if (!hadSomeData) {
             await new Promise(resolve => setTimeout(resolve, SLEEP_TIME));
             continue;
         }
 
-        // Extract data first (outside transaction for performance)
-        const extractedData = indexer.extractData(transactions);
+        const indexingStart = performance.now();
+
 
         // Save extracted data in SQLite transaction
         const saveDataTransaction = db.transaction(() => {
+            if (newLastIndexedTx === undefined) {
+                throw new Error("newLastIndexedTx is undefined, this is a bug");
+            }
             indexer.saveExtractedData(db, blocksDb, extractedData);
-            setIntValue(db, `lastIndexedTx_${name}`, transactions.txs[transactions.txs.length - 1]!.txNum);
+            setIntValue(db, `lastIndexedTx_${name}`, newLastIndexedTx);
         });
 
         saveDataTransaction();
@@ -107,14 +96,12 @@ async function startSingleIndexer(indexer: IndexingPlugin<any>, db: sqlite3.Data
 
         // Get progress information (async operations outside transaction)
         const lastStoredBlock = blocksDb.getLastStoredBlockNumber();
-        const lastIndexedBlock = transactions.txs[transactions.txs.length - 1]!.receipt.blockNumber;
-        const lastIndexedBlockNum = parseInt(lastIndexedBlock);
-        const indexingPercentage = ((lastIndexedBlockNum / lastStoredBlock) * 100).toFixed(2);
+        const indexingPercentage = ((lastIndexedBlock ?? 0) / lastStoredBlock * 100).toFixed(2);
 
         console.log(
-            `[${name} - ${chainConfig.chainName}] Retrieved ${transactions.txs.length} txs in ${Math.round(indexingStart - getStart)}ms`,
-            `Indexed ${transactions.txs.length} txs in ${Math.round(indexingFinish - indexingStart)}ms`,
-            `(${indexingPercentage}% - block ${lastIndexedBlockNum}/${lastStoredBlock})`
+            `[${name} - ${chainConfig.chainName}] Retrieved ${indexedTxs} txs in ${Math.round(indexingStart - getStart)}ms`,
+            `Indexed ${indexedTxs} txs in ${Math.round(indexingFinish - indexingStart)}ms`,
+            `(${indexingPercentage}% - block ${lastIndexedBlock}/${lastStoredBlock})`
         );
 
         await new Promise(resolve => setImmediate(resolve));//Let the event loop run

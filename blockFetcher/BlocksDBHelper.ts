@@ -6,7 +6,6 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { execSync } from 'child_process';
-const MAX_ROWS_WITH_FILTER = 10000;
 const ZSTD_COMPRESSION_LEVEL = 1;
 
 // Compression maintenance constants
@@ -757,20 +756,19 @@ export class BlocksDBHelper {
         this.setIntValue('hasDebug', hasDebug ? 1 : 0);
     }
 
-    getTxBatch(greaterThanTxNum: number, limit: number, includeTraces: boolean, filterEvents: string[] | undefined): { txs: StoredTx[], traces: RpcTraceResult[] | undefined } {
+    getTxBatch(
+        greaterThanTxNum: number,
+        lowerThanTxNum: number = Number.MAX_SAFE_INTEGER,
+        includeTraces: boolean,
+        filterEvents: string[] | undefined,
+    ): { txs: StoredTx[], traces: RpcTraceResult[] | undefined } {
         // Ensure safe values to prevent SQL injection
         const txNumParam = Math.max(-1, greaterThanTxNum);
-        let limitParam = Math.min(Math.max(1, limit), 100000);
-
-        // When filtering events, hard cap to 1000 to avoid huge IN clauses
-        if (filterEvents && filterEvents.length > 0) {
-            limitParam = Math.min(limitParam, MAX_ROWS_WITH_FILTER);
-        }
+        const lowerThanTxNumParam = Math.max(txNumParam + 1, lowerThanTxNum);
 
         if (filterEvents && filterEvents.length > 0) {
             // Use the index for efficient filtering
             const topicHashPrefixes = filterEvents.map(topic => Buffer.from(topic.slice(2), 'hex').slice(0, 5));
-
             const placeholders = topicHashPrefixes.map(() => '?').join(',');
 
             // First query: Get just the tx_nums using the indexed table (fast)
@@ -778,12 +776,12 @@ export class BlocksDBHelper {
                                FROM tx_topics tt
                                WHERE tt.topic_hash IN (${placeholders})
                                AND tt.tx_num > ?
-                               ORDER BY tt.tx_num ASC
-                               LIMIT ?`;
+                               AND tt.tx_num <= ?
+                               ORDER BY tt.tx_num ASC`;
 
             const startTime = performance.now();
             const txNumStmt = this.db.prepare(txNumQuery);
-            const txNumRows = txNumStmt.all(...topicHashPrefixes, txNumParam, limitParam) as any[];
+            const txNumRows = txNumStmt.all(...topicHashPrefixes, txNumParam, lowerThanTxNumParam) as any[];
             const elapsed = performance.now() - startTime;
             if (elapsed > 100) {
                 console.log(`SQLite tx_num query took ${elapsed}ms`);
@@ -837,12 +835,12 @@ export class BlocksDBHelper {
         } else {
             // No filtering, use original query
             const query = includeTraces && this.hasDebug
-                ? `SELECT tx_num, data, traces FROM txs WHERE tx_num > ? ORDER BY tx_num ASC LIMIT ?`
-                : `SELECT tx_num, data FROM txs WHERE tx_num > ? ORDER BY tx_num ASC LIMIT ?`;
+                ? `SELECT tx_num, data, traces FROM txs WHERE tx_num > ? AND tx_num <= ? ORDER BY tx_num ASC`
+                : `SELECT tx_num, data FROM txs WHERE tx_num > ? AND tx_num <= ? ORDER BY tx_num ASC`;
 
             const startTime = performance.now();
             const stmt = this.db.prepare(query);
-            const rows = stmt.all(txNumParam, limitParam) as any[];
+            const rows = stmt.all(txNumParam, lowerThanTxNumParam) as any[];
             const elapsed = performance.now() - startTime;
             if (elapsed > 100) {
                 console.log(`SQLite query took ${elapsed}ms`);
