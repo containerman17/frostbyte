@@ -1,6 +1,6 @@
-import type { ApiPlugin, BlocksDBHelper, RegisterRoutesContext, evmTypes } from "../index";
+import type { ApiPlugin, BlocksDBHelper, RegisterRoutesContext, evmTypes } from "../index.ts";
 import { utils } from "@avalabs/avalanchejs";
-import { logsBloom } from "../index";
+import { logsBloom } from "../index.ts";
 
 // JSON-RPC types
 interface RPCRequest {

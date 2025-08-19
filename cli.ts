@@ -5,7 +5,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { existsSync } from 'node:fs';
-import { createPluginTemplate } from './lib/pluginTemplate.js';
+import { createPluginTemplate } from './lib/pluginTemplate.ts';
 
 const argv = yargs(hideBin(process.argv))
     .command('run', 'Run the indexer', {

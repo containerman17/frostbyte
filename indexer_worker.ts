@@ -1,6 +1,6 @@
-import { BlocksDBHelper } from "./blockFetcher/BlocksDBHelper";
-import { ChainConfig, getPluginDirs, getSqliteDb } from "./config";
-import { loadIndexingPlugins } from "./lib/plugins";
+import { BlocksDBHelper } from "./blockFetcher/BlocksDBHelper.js";
+import { ChainConfig, getPluginDirs, getSqliteDb } from "./config.js";
+import { loadIndexingPlugins } from "./lib/plugins.js";
 import { IndexingPlugin } from "./lib/types.js";
 
 const pluginsPromise = loadIndexingPlugins(getPluginDirs());
@@ -22,17 +22,21 @@ function getBlocksDb(chainConfig: ChainConfig) {
     return blocksDbCache.get(key)!;
 }
 
-export default async function executeIndexingTask<ExtractedDataType>(chainConfig: ChainConfig, pluginName: string, pluginVersion: number, fromTx: number, toTx: number): Promise<{
+export default async function executeIndexingTask<ExtractedDataType>(args: {
+    chainConfig: ChainConfig,
+    pluginName: string,
+    pluginVersion: number,
+    fromTx: number,
+    toTx: number
+}): Promise<{
     extractedData: ExtractedDataType,
-    hadSomeData: boolean,
-    lastIndexedTx: number | undefined,
-    lastIndexedBlock: number | undefined,
     indexedTxs: number
 }> {
+    const { chainConfig, pluginName, pluginVersion, fromTx, toTx } = args;
     const plugins = await pluginsPromise;
-    const plugin = plugins.find(p => p.name === pluginName && p.version === pluginVersion);
+    const plugin = plugins.find(p => p.name === pluginName);
     if (!plugin) {
-        throw new Error(`Plugin ${pluginName} v${pluginVersion} not found`);
+        throw new Error(`Plugin ${pluginName} v${pluginVersion} not found. Available plugins: ${plugins.map(p => `${p.name}`).join(", ")}`);
     }
 
     const blocksDb = getBlocksDb(chainConfig);
@@ -40,15 +44,9 @@ export default async function executeIndexingTask<ExtractedDataType>(chainConfig
     const transactions = blocksDb.getTxBatch(fromTx, toTx, plugin.usesTraces, plugin.filterEvents);
 
     const extractedData = plugin.extractData(transactions);
-    const hadSomeData = transactions.txs.length > 0;
 
     return {
         extractedData,
-        hadSomeData,
-        lastIndexedTx: transactions.txs[transactions.txs.length - 1]?.txNum,
-        lastIndexedBlock: transactions.txs[transactions.txs.length - 1]?.receipt.blockNumber
-            ? parseInt(transactions.txs[transactions.txs.length - 1]!.receipt.blockNumber)
-            : undefined,
         indexedTxs: transactions.txs.length,
     };
 }

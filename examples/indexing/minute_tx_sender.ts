@@ -1,4 +1,4 @@
-import { type IndexingPlugin, evmTypes } from "../../index.js";
+import { type IndexingPlugin } from "../../index.ts";
 
 type MinuteTxSenderRow = {
     minute: number;

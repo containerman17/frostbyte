@@ -1,3 +1,4 @@
+import path from 'path';
 import { BlocksDBHelper } from './blockFetcher/BlocksDBHelper.js';
 import { loadIndexingPlugins } from './lib/plugins.js';
 import { getIntValue, setIntValue } from './lib/dbHelper.js';
@@ -5,6 +6,15 @@ import { IndexingPlugin } from './lib/types.js';
 import { getCurrentChainConfig, getSqliteDb, getPluginDirs, ChainConfig } from './config.js';
 import sqlite3 from 'better-sqlite3';
 import executeIndexingTask from './indexer_worker.js';
+import Piscina from 'piscina';
+
+console.log('Parent process execArgv:', process.execArgv);
+
+const piscina = new Piscina({
+    filename: new URL('./indexer_worker.ts', import.meta.url).toString(),
+    maxThreads: 10,
+    execArgv: process.execArgv
+});
 
 const TXS_PER_LOOP = 50000;
 const SLEEP_TIME = 3000;
@@ -59,35 +69,38 @@ export async function startIndexingLoop(chainConfig: ChainConfig) {
 
     await Promise.all(startPromises);
 }
-
+const startTime = performance.now();
 async function startSingleIndexer(indexer: IndexingPlugin<any>, db: sqlite3.Database, blocksDb: BlocksDBHelper) {
     const chainConfig = getCurrentChainConfig();
-    const name = indexer.name;
 
     // Main indexing loop
     while (true) {
         // Get last indexed transaction from db (outside of transaction)
-        const lastIndexedTx = getIntValue(db, `lastIndexedTx_${name}`, -1);
+        const lastIndexedTx = getIntValue(db, `lastIndexedTx_${indexer.name}`, -1);
 
         // Fetch data from BlocksDBHelper (async operation)
         const getStart = performance.now();
-        const { extractedData, hadSomeData, lastIndexedTx: newLastIndexedTx, lastIndexedBlock, indexedTxs } = await executeIndexingTask<any>(chainConfig, name, indexer.version, lastIndexedTx, lastIndexedTx + TXS_PER_LOOP);
 
-        if (!hadSomeData) {
+        const maxTx = Math.min(blocksDb.getTxCount(), lastIndexedTx + TXS_PER_LOOP);
+        if (maxTx <= lastIndexedTx) {
             await new Promise(resolve => setTimeout(resolve, SLEEP_TIME));
             continue;
         }
 
-        const indexingStart = performance.now();
+        const { extractedData, indexedTxs } = await piscina.run({
+            chainConfig,
+            pluginName: indexer.name,
+            pluginVersion: indexer.version,
+            fromTx: lastIndexedTx,
+            toTx: maxTx
+        });
 
+        const indexingStart = performance.now();
 
         // Save extracted data in SQLite transaction
         const saveDataTransaction = db.transaction(() => {
-            if (newLastIndexedTx === undefined) {
-                throw new Error("newLastIndexedTx is undefined, this is a bug");
-            }
             indexer.saveExtractedData(db, blocksDb, extractedData);
-            setIntValue(db, `lastIndexedTx_${name}`, newLastIndexedTx);
+            setIntValue(db, `lastIndexedTx_${indexer.name}`, maxTx);
         });
 
         saveDataTransaction();
@@ -96,14 +109,15 @@ async function startSingleIndexer(indexer: IndexingPlugin<any>, db: sqlite3.Data
 
         // Get progress information (async operations outside transaction)
         const lastStoredBlock = blocksDb.getLastStoredBlockNumber();
-        const indexingPercentage = ((lastIndexedBlock ?? 0) / lastStoredBlock * 100).toFixed(2);
+        const indexingPercentage = ((lastIndexedTx ?? 0) / lastStoredBlock * 100).toFixed(2);
 
-        console.log(
-            `[${name} - ${chainConfig.chainName}] Retrieved ${indexedTxs} txs in ${Math.round(indexingStart - getStart)}ms`,
-            `Indexed ${indexedTxs} txs in ${Math.round(indexingFinish - indexingStart)}ms`,
-            `(${indexingPercentage}% - block ${lastIndexedBlock}/${lastStoredBlock})`
-        );
-
-        await new Promise(resolve => setImmediate(resolve));//Let the event loop run
+        if (indexedTxs > 0) {
+            console.log(
+                `[${indexer.name} - ${chainConfig.chainName}] Retrieved ${indexedTxs} txs in ${Math.round(indexingStart - getStart)}ms`,
+                `Indexed ${indexedTxs} txs in ${Math.round(indexingFinish - indexingStart)}ms`,
+                `(${indexingPercentage}% - block ${lastIndexedTx}/${lastStoredBlock})`,
+                `Total time: ${Math.round((performance.now() - startTime) / 1000)}s`
+            );
+        }
     }
 }

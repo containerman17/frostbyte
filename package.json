@@ -12,16 +12,18 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "npm run build:main && npm run build:examples",
+    "build:main": "tsc",
+    "build:examples": "tsc -p tsconfig.examples.json",
     "build:watch": "tsc --watch",
-    "prepublishOnly": "npm run build",
-    "dev:start": "npx tsx cli.ts run --plugins-dir ./examples/api,./examples/indexing --data-dir ./data",
+    "prepublishOnly": "npm run build:main",
+    "dev:start": "node dist/cli.js run --plugins-dir ./dist/examples/api,./dist/examples/indexing --data-dir ./data",
     "dev:indexer": "ROLES=indexer npm run dev:start",
     "dev:api": "ROLES=api npm run dev:start",
     "dev:fetcher": "ROLES=fetcher npm run dev:start",
     "dev": "nodemon --watch plugins --watch data --exec \"npm run dev:start\"",
     "clean": "rm -rf data/*/indexing*",
-    "kill": "pkill -f 'tsx cli.ts run --plugins-dir ./examples/api,./examples/indexing --data-dir ./data'"
+    "kill": "pkill -f 'node dist/cli.js run --plugins-dir ./dist/examples/api,./dist/examples/indexing --data-dir ./data'"
   },
   "keywords": [
     "blockchain",

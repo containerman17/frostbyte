@@ -1,4 +1,4 @@
-import { toEventSignature, AbiItem as ViemAbiItem, keccak256, toHex } from 'viem';
+import { toEventSignature, type AbiItem as ViemAbiItem, keccak256, toHex } from 'viem';
 
 export type AbiItem = ViemAbiItem;
 
