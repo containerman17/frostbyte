@@ -5,7 +5,7 @@ import { startFetchingLoop } from './blockFetcher/startFetchingLoop.js';
 import { BatchRpc } from './blockFetcher/BatchRpc.js';
 import { CHAIN_CONFIGS, getCurrentChainConfig, getSqliteDb } from './config.js';
 import { createApiServer } from './api.js';
-import { startSingleIndexer, getAvailableIndexers } from './indexer.js';
+import { startIndexingLoop } from './indexer.js';
 
 // Log any uncaught exceptions or promise rejections to aid debugging of worker crashes
 process.on('unhandledRejection', reason => {
@@ -28,18 +28,11 @@ if (cluster.isPrimary) {
         // Spawn workers based on roles
         for (const role of roles) {
             if (role === 'indexer') {
-                // Discover all available indexers and spawn one worker for each
-                const availableIndexers = await getAvailableIndexers();
-                console.log(`Discovered ${availableIndexers.length} indexers: ${availableIndexers.join(', ')}`);
-
-                for (const indexerName of availableIndexers) {
-                    const worker = cluster.fork({
-                        ROLE: 'indexer',
-                        INDEXER_NAME: indexerName,
-                        CHAIN_ID: config.blockchainId,
-                    });
-                    console.log(`Spawned worker for indexer: ${indexerName}, PID: ${worker.process.pid}, Chain ID: ${config.blockchainId}`);
-                }
+                const worker = cluster.fork({
+                    ROLE: 'indexer',
+                    CHAIN_ID: config.blockchainId,
+                });
+                console.log(`Spawned indexing worker for chain: ${config.blockchainId}, PID: ${worker.process.pid}`);
             } else if (role === 'fetcher') {
                 // Spawn single worker for other roles
                 const worker = cluster.fork({ ROLE: role, CHAIN_ID: config.blockchainId });
@@ -106,27 +99,7 @@ if (cluster.isPrimary) {
         const port = parseInt(process.env['PORT'] || '3080', 10);
         await apiServer.start(port);
     } else if (process.env['ROLE'] === 'indexer') {
-        const chainConfig = getCurrentChainConfig();
-        const db = getSqliteDb({
-            debugEnabled: chainConfig.rpcConfig.rpcSupportsDebug,
-            type: "blocks",
-            chainId: chainConfig.blockchainId,
-            readonly: true,
-        });
-
-        // Each indexer worker must have a specific indexer name
-        const indexerName = process.env['INDEXER_NAME'];
-        if (!indexerName) {
-            throw new Error('INDEXER_NAME environment variable is required for indexer workers');
-        }
-
-        console.log(`Starting indexer worker for: ${indexerName}`);
-        await startSingleIndexer({
-            chainId: chainConfig.blockchainId,
-            indexerName,
-            exitWhenDone: false,
-            debugEnabled: chainConfig.rpcConfig.rpcSupportsDebug
-        });
+        await startIndexingLoop(getCurrentChainConfig());
     } else {
         throw new Error('unknown role');
     }
