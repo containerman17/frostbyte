@@ -85,19 +85,17 @@ async function startSingleIndexer(indexer: IndexingPlugin<any>, db: sqlite3.Data
             continue;
         }
 
-        const maxTx = Math.min(totalTxCount, lastIndexedTx + TXS_PER_LOOP);
-
         const getStart = performance.now();
 
-        let hasNewBatch = false;
+        // Only lookahead for WHOLE batches
         for (let i = 0; i < lookaheadManager.getCurrentLookahead(); i++) {
             const fromTx = lastIndexedTx + i * TXS_PER_LOOP;
-            const toTx = Math.min(totalTxCount, lastIndexedTx + (i + 1) * TXS_PER_LOOP);
-            if (fromTx > toTx) {
+            const toTx = lastIndexedTx + (i + 1) * TXS_PER_LOOP;
+
+            // Skip if this would be a partial batch
+            if (toTx > totalTxCount) {
                 break;
             }
-
-            hasNewBatch = true;
 
             if (batchPromises.has(fromTx)) {
                 continue;
@@ -112,15 +110,38 @@ async function startSingleIndexer(indexer: IndexingPlugin<any>, db: sqlite3.Data
             }));
         }
 
-        const batch: Awaited<ReturnType<typeof executeIndexingTask>> = await batchPromises.get(lastIndexedTx)!;
-        batchPromises.delete(lastIndexedTx);
+        // Check if we have a pre-fetched batch or need to process final partial batch
+        let batch: Awaited<ReturnType<typeof executeIndexingTask>>;
+        let processedToTx: number;
+
+        if (batchPromises.has(lastIndexedTx)) {
+            // Use pre-fetched whole batch
+            batch = await batchPromises.get(lastIndexedTx)!;
+            batchPromises.delete(lastIndexedTx);
+            processedToTx = lastIndexedTx + TXS_PER_LOOP;
+        } else if (lastIndexedTx < totalTxCount) {
+            // Process final partial batch (not pre-fetched)
+            const toTx = Math.min(totalTxCount, lastIndexedTx + TXS_PER_LOOP);
+            batch = await piscina.run({
+                chainConfig,
+                pluginName: indexer.name,
+                pluginVersion: indexer.version,
+                fromTx: lastIndexedTx,
+                toTx
+            });
+            processedToTx = toTx;
+        } else {
+            // No work to do
+            await new Promise(resolve => setTimeout(resolve, SLEEP_TIME));
+            continue;
+        }
 
         const indexingStart = performance.now();
 
         // Save extracted data in SQLite transaction
         const saveDataTransaction = db.transaction(() => {
             indexer.saveExtractedData(db, blocksDb, batch.extractedData);
-            setIntValue(db, `lastIndexedTx_${indexer.name}`, Math.min(lastIndexedTx + TXS_PER_LOOP, totalTxCount));
+            setIntValue(db, `lastIndexedTx_${indexer.name}`, processedToTx);
         });
 
         saveDataTransaction();
