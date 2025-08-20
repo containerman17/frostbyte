@@ -23,7 +23,6 @@ tracked by Git are listed (items ignored via `.gitignore` such as
 - `start.ts` – cluster entry point that spawns fetcher, indexer and API workers.
 - `package.json` / `package-lock.json` – Node package metadata and lock file.
 - `tsconfig.json` – TypeScript compiler configuration.
-- `types/tsx.d.ts` – shim declaration for `tsx` when used via CommonJS.
 
 ## Block fetching subsystem (`blockFetcher/`)
 

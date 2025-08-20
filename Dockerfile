@@ -17,8 +17,6 @@ RUN --mount=type=cache,id=npm-cache,target=/root/.npm \
 
 COPY . .
 
-RUN npm run build
-
 # Create a tarball of the package and install it globally
 # This makes frostbyte-sdk available for external plugins
 RUN npm pack && \
@@ -28,7 +26,7 @@ RUN npm pack && \
 # Set NODE_PATH to include global modules so external plugins can resolve imports
 ENV NODE_PATH=/usr/local/lib/node_modules
 
-# Increase Node.js heap size to 16GB
-ENV NODE_OPTIONS="--max-old-space-size=16384"
+# Increase Node.js heap size to 16GB and enable TypeScript stripping
+ENV NODE_OPTIONS="--max-old-space-size=16384 --experimental-strip-types"
 
 CMD ["frostbyte", "run", "--plugins-dir=/plugins", "--data-dir=/data"]

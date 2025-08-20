@@ -1,18 +1,25 @@
 {
   "name": "frostbyte-sdk",
-  "version": "1.0.6",
+  "version": "2.0.0-rc.1",
   "description": "A high-performance blockchain indexer with TypeScript plugin support",
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "index.ts",
+  "types": "index.ts",
   "bin": {
-    "frostbyte": "./dist/cli.js"
+    "frostbyte": "./cli.ts"
   },
   "files": [
-    "dist"
+    "*.ts",
+    "lib/**/*.ts",
+    "blockFetcher/**/*.ts",
+    "standardPlugins/**/*.ts",
+    "scripts/**/*.ts",
+    "tsconfig.json",
+    "!**/*.test.ts",
+    "!**/*.spec.ts"
   ],
   "scripts": {
-    "dev:start": "node cli.ts run --plugins-dir ./examples/api,./examples/indexing --data-dir ./data",
+    "dev:start": "node --experimental-strip-types cli.ts run --plugins-dir ./examples/api,./examples/indexing --data-dir ./data",
     "dev:indexer": "ROLES=indexer npm run dev:start",
     "dev:api": "ROLES=api npm run dev:start",
     "dev:fetcher": "ROLES=fetcher npm run dev:start",
@@ -32,7 +39,13 @@
     "url": "https://github.com/containerman17/frostbyte.git"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./index.ts",
+      "default": "./index.ts"
+    }
   },
   "dependencies": {
     "@avalabs/avalanchejs": "^5.0.0",
@@ -48,7 +61,6 @@
     "p-queue": "^8.1.0",
     "pino-pretty": "^13.0.0",
     "piscina": "^5.1.3",
-    "tsx": "^4.6.2",
     "typescript": "^5.8.3",
     "viem": "^2.31.7",
     "yargs": "^17.7.2",

@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env -S node --experimental-strip-types
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import path from 'node:path';
@@ -61,34 +61,9 @@ async function main() {
 
         // Run the start script
         const __dirname = path.dirname(fileURLToPath(import.meta.url));
+        const startPath = path.join(__dirname, 'start.ts');
 
-        // Check if we're running from source (development) or dist (production)
-        const tsStartPath = path.join(__dirname, 'start.ts');
-        const jsStartPath = path.join(__dirname, 'start.js');
-        const startPath = existsSync(tsStartPath) ? tsStartPath : jsStartPath;
-
-        // Find tsx - try multiple locations
-        let tsxPath: string | undefined;
-
-        // Try local node_modules first
-        const localTsx = path.join(__dirname, 'node_modules', '.bin', 'tsx');
-        if (existsSync(localTsx)) {
-            tsxPath = localTsx;
-        } else {
-            // If not found locally, use npx to run tsx
-            // This will work for global installations
-            const child = spawn('npx', ['--yes', 'tsx', startPath], {
-                env,
-                stdio: 'inherit',
-            });
-
-            child.on('exit', (code) => {
-                process.exit(code || 0);
-            });
-            return;
-        }
-
-        const child = spawn(tsxPath, [startPath], {
+        const child = spawn('node', ['--experimental-strip-types', startPath], {
             env,
             stdio: 'inherit',
         });

@@ -2,6 +2,11 @@
 
 A high-performance Avalanche L1 indexer kit with TypeScript plugin support.
 
+## Requirements
+
+- **Node.js 22.0.0 or higher** (required for native TypeScript support)
+- npm or compatible package manager
+
 ## Installation
 
 ```bash
