@@ -43,7 +43,7 @@ export async function loadIndexingPlugins(pluginsDirs: string[]): Promise<Indexi
 
                 if (isIndexingPlugin(defaultExport)) {
                     plugins.push(defaultExport);
-                    console.log(`Loaded indexing plugin: ${file} (${defaultExport.name})`);
+                    // console.log(`Loaded indexing plugin: ${file} (${defaultExport.name})`);
                 }
             }
         }
