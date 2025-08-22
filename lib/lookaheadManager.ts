@@ -2,7 +2,7 @@ import { currentLoad, mem } from "systeminformation";
 
 // Lookahead management class
 class LookaheadManager {
-    private currentLookahead = 5; // Start more aggressively
+    private currentLookahead = 0; // Start more aggressively
     private readonly maxLookahead = 10;
     private readonly minLookahead = 0;
     private readonly cpuThreshold = 0.9;

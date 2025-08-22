@@ -2,7 +2,7 @@ import { type IndexingPlugin } from "../../index.ts";
 
 const module: IndexingPlugin<Record<string, number>> = {
     name: "tx_counter",
-    version: Math.floor(Math.random() * 1000000),
+    version: 1,
     usesTraces: false,
 
     // Initialize tables

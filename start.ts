@@ -16,7 +16,7 @@ process.on('uncaughtException', error => {
 });
 
 if (cluster.isPrimary) {
-    const roles = process.env['ROLES']?.split(',') || ['fetcher', 'api', 'indexer'];
+    const roles = process.env['ROLES']?.split(',') || ['api', 'indexer', 'fetcher'];
     let apiStarted = false;
 
     // Calculate number of API workers (CPU cores / 2, minimum 1)
