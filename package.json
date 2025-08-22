@@ -13,6 +13,7 @@
   ],
   "scripts": {
     "build": "tsc",
+    "postbuild": "chmod +x dist/cli.js",
     "build:watch": "tsc --watch",
     "prepublishOnly": "npm run build",
     "dev:start": "npx tsx cli.ts run --plugins-dir ./examples --data-dir ./data",
