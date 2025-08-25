@@ -8,8 +8,9 @@ import path from 'node:path';
 import chainsApiPlugin from './standardPlugins/chainsApi.js';
 import rpcApiPlugin from './standardPlugins/rpcApi.js';
 import replicationChainsApiPlugin from './standardPlugins/replicationChainsApi.js';
-import { ASSETS_DIR } from './config.js';
+import { ASSETS_DIR, DATA_DIR } from './config.js';
 import sqlite3 from 'better-sqlite3';
+import { calculateApiCacheVersion } from './lib/apiCacheHelper.js';
 
 const docsPage = `
 <!doctype html>
@@ -35,6 +36,7 @@ const docsPage = `
 
 export async function createApiServer(chainConfigs: ChainConfig[]) {
     // Load both types of plugins
+    console.log(`Loading API plugins from ${getPluginDirs()}`);
     const loadedApiPlugins = await loadApiPlugins(getPluginDirs());
     const indexingPlugins = await loadIndexingPlugins(getPluginDirs());
 
@@ -180,13 +182,79 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
         }
 
         console.log(`Registering routes for API plugin "${apiPlugin.name}"`);
+
+        // Create context object
+        const routeContext = {
+            getBlocksDbHelper: getBlocksDbHelper,
+            getIndexerDbConnection: getIndexerDbConnection,
+            getChainConfig: getChainConfig,
+            getAllChainConfigs: () => [...chainConfigs]
+        };
+
+        // Add cache database if plugin defines initializeCacheDb
+        if (apiPlugin.initializeCacheDb) {
+            const cacheVersion = calculateApiCacheVersion(
+                apiPlugin.version,
+                apiPlugin.name,
+                apiPlugin.requiredIndexers,
+                availableIndexers
+            );
+
+            const cacheDbPath = path.join(DATA_DIR, 'api_cache', `${apiPlugin.name}_cache.db`);
+
+            // Ensure directory exists
+            const cacheDir = path.dirname(cacheDbPath);
+            if (!fs.existsSync(cacheDir)) {
+                fs.mkdirSync(cacheDir, { recursive: true });
+            }
+
+            // Handle version check - drop DB if version changed
+            if (fs.existsSync(cacheDbPath)) {
+                const tempDb = new sqlite3(cacheDbPath, { readonly: true });
+                try {
+                    const storedVersion = tempDb.prepare('SELECT value FROM kv_int WHERE key = ?').get('cache_version') as { value: number } | undefined;
+                    if (!storedVersion || storedVersion.value !== cacheVersion) {
+                        console.log(`[API Cache] Version mismatch for ${apiPlugin.name}, dropping cache database`);
+                        tempDb.close();
+                        fs.unlinkSync(cacheDbPath);
+                    } else {
+                        tempDb.close();
+                    }
+                } catch (error) {
+                    console.log(`[API Cache] Error checking version for ${apiPlugin.name}, dropping cache database`);
+                    tempDb.close();
+                    fs.unlinkSync(cacheDbPath);
+                }
+            }
+
+            // Open/create cache database
+            const cacheDb = new sqlite3(cacheDbPath);
+            cacheDb.pragma('journal_mode = WAL');
+            cacheDb.pragma('synchronous = NORMAL');
+            cacheDb.pragma('cache_size = -8192'); // 8MB cache
+
+            // Initialize if needed
+            const isInitialized = cacheDb.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='kv_int'").get();
+            if (!isInitialized) {
+                cacheDb.exec(`
+                    CREATE TABLE kv_int (
+                        key   TEXT PRIMARY KEY,
+                        value INTEGER NOT NULL
+                    )
+                `);
+                cacheDb.prepare('INSERT INTO kv_int VALUES (?, ?)').run('cache_version', cacheVersion);
+
+                // Run plugin's initialization
+                apiPlugin.initializeCacheDb(cacheDb);
+                console.log(`[API Cache] Initialized cache database for ${apiPlugin.name} with version ${cacheVersion}`);
+            }
+
+            // Add getCacheDb to context
+            (routeContext as any).getCacheDb = () => cacheDb;
+        }
+
         try {
-            apiPlugin.registerRoutes(app, {
-                getBlocksDbHelper: getBlocksDbHelper,
-                getIndexerDbConnection: getIndexerDbConnection,
-                getChainConfig: getChainConfig,
-                getAllChainConfigs: () => [...chainConfigs]
-            });
+            apiPlugin.registerRoutes(app, routeContext);
         } catch (error) {
             console.error(`Failed to register routes for API plugin "${apiPlugin.name}":`, error);
             throw new Error(`API plugin "${apiPlugin.name}" route registration failed: ${error instanceof Error ? error.message : String(error)}`);

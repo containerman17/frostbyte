@@ -19,7 +19,6 @@ function isApiPlugin(plugin: any): plugin is ApiPlugin {
         typeof plugin.name === 'string' &&
         Array.isArray(plugin.requiredIndexers) &&
         typeof plugin.registerRoutes === 'function' &&
-        !plugin.version && // API plugins don't have version
         !plugin.extractData && !plugin.saveExtractedData; // API plugins don't handle transactions
 }
 

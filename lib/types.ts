@@ -12,6 +12,7 @@ export interface RegisterRoutesContext {
     getIndexerDbConnection: (evmChainId: number, indexerName: string) => sqlite3.Database;
     getChainConfig: (evmChainIdOrBlockchainId: number | string) => ChainConfig | undefined;
     getAllChainConfigs: () => ChainConfig[];
+    getCacheDb?: () => sqlite3.Database;  // Available only if initializeCacheDb is defined
 }
 
 export type TxBatch = {
@@ -41,8 +42,12 @@ export interface IndexingPlugin<ExtractedDataType> {
 /** API plugin - provides REST endpoints using data from specified indexer databases */
 export interface ApiPlugin {
     name: string;          // unique slug for the API plugin
+    version: number;       // bump when caching logic changes
     /** List of indexer names whose databases this API plugin needs access to */
     requiredIndexers: string[];
+
+    /** Optional: Initialize cache database tables */
+    initializeCacheDb?: (db: sqlite3.Database) => void;
 
     registerRoutes: (app: FastifyInstance, dbCtx: RegisterRoutesContext) => void;
 }

@@ -69,7 +69,10 @@ export function getPluginDirs(): string[] {
         throw new Error('PLUGIN_DIRS is not set');
     }
     // Split by comma or semicolon to support multiple directories
-    return PLUGIN_DIRS.split(/[,;]/).map(dir => dir.trim()).filter(dir => dir.length > 0);
+    return PLUGIN_DIRS.split(/[,;]/)
+        .map(dir => dir.trim())
+        .filter(dir => dir.length > 0)
+        .map(dir => path.resolve(dir));
 }
 
 // SQLite database cache - separate databases for blocks and each plugin
