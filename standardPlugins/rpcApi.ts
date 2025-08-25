@@ -1,5 +1,4 @@
 import type { ApiPlugin, BlocksDBHelper, RegisterRoutesContext, evmTypes } from "../index.ts";
-import { utils } from "@avalabs/avalanchejs";
 import { logsBloom } from "../index.ts";
 
 // JSON-RPC types
@@ -61,7 +60,7 @@ function getBlockTraces(blocksDb: BlocksDBHelper, blockNumber: number) {
     return blocksDb.slow_getBlockTraces(blockNumber);
 }
 
-function handleRpcRequest(blocksDb: BlocksDBHelper, request: RPCRequest, dbCtx: RegisterRoutesContext): RPCResponse {
+async function handleRpcRequest(blocksDb: BlocksDBHelper, request: RPCRequest, dbCtx: RegisterRoutesContext): Promise<RPCResponse> {
     const response: RPCResponse = { jsonrpc: request.jsonrpc || '2.0' };
     if (request.id !== undefined) {
         // Parse numeric strings to actual numbers
@@ -100,19 +99,34 @@ function handleRpcRequest(blocksDb: BlocksDBHelper, request: RPCRequest, dbCtx: 
             }
             case 'eth_call': {
                 const callObj = request.params?.[0] as { to?: string; data?: string };
-                const tag = request.params?.[1];
-                const warpAddr = '0x0200000000000000000000000000000000000005';
-                const getBlockchainIDSig = '0x4213cf78';
-                const chainConfig = dbCtx.getChainConfig(blocksDb.getEvmChainId());
-                if (!chainConfig) {
-                    response.error = { code: -32601, message: 'Chain config not found' };
+                const blockTag = request.params?.[1];
+
+                // We only support 'latest' block tag for now
+                if (blockTag !== 'latest' && blockTag !== undefined) {
+                    response.error = { code: -32602, message: 'Only "latest" block tag is supported' };
                     break;
                 }
-                if (tag === 'latest' && callObj && callObj.to?.toLowerCase() === warpAddr && callObj.data === getBlockchainIDSig) {
-                    const bytes = utils.base58check.decode(chainConfig.blockchainId);
-                    response.result = '0x' + Buffer.from(bytes).toString('hex');
-                } else {
-                    response.error = { code: -32601, message: 'Unsupported eth_call' };
+
+                if (!callObj || !callObj.to || !callObj.data) {
+                    response.error = { code: -32602, message: 'Invalid parameters: to and data are required' };
+                    break;
+                }
+
+                try {
+                    // Validate hex strings
+                    if (!callObj.to.match(/^0x[0-9a-fA-F]{40}$/) || !callObj.data.match(/^0x[0-9a-fA-F]*$/)) {
+                        response.error = { code: -32602, message: 'Invalid hex format for to or data' };
+                        break;
+                    }
+
+                    // Use the cached ethCall function
+                    response.result = await dbCtx.ethCall(
+                        blocksDb.getEvmChainId(),
+                        callObj.to as `0x${string}`,
+                        callObj.data as `0x${string}`
+                    );
+                } catch (error: any) {
+                    response.error = { code: -32000, message: `eth_call failed: ${error.message}` };
                 }
                 break;
             }
@@ -175,6 +189,18 @@ const registerRoutes: ApiPlugin['registerRoutes'] = (app, dbCtx) => {
                 method: 'eth_getTransactionReceipt',
                 params: ['0x85d995eba9763907fdf35cd2034144dd9d53ce32cbec21349d4b12823c6860c5'],
                 id: 4
+            },
+            {
+                jsonrpc: '2.0',
+                method: 'eth_call',
+                params: [
+                    {
+                        to: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+                        data: '0x06fdde03'  // name() function selector
+                    },
+                    'latest'
+                ],
+                id: 5
             }
         ]
     };
@@ -315,6 +341,18 @@ const registerRoutes: ApiPlugin['registerRoutes'] = (app, dbCtx) => {
                             jsonrpc: '2.0',
                             method: 'eth_blockNumber',
                             id: 2
+                        },
+                        {
+                            jsonrpc: '2.0',
+                            method: 'eth_call',
+                            params: [
+                                {
+                                    to: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+                                    data: '0x06fdde03'  // name() function
+                                },
+                                'latest'
+                            ],
+                            id: 3
                         }
                     ]
                 ]
@@ -323,17 +361,17 @@ const registerRoutes: ApiPlugin['registerRoutes'] = (app, dbCtx) => {
                 200: batchResponseSchema
             }
         }
-    }, (request, reply) => {
+    }, async (request, reply) => {
         const { evmChainId } = request.params as { evmChainId: number };
         const blocksDb = dbCtx.getBlocksDbHelper(evmChainId);
 
         const requests = request.body as RPCRequest | RPCRequest[];
 
         if (Array.isArray(requests)) {
-            const responses = requests.map(req => handleRpcRequest(blocksDb, req, dbCtx));
+            const responses = await Promise.all(requests.map(req => handleRpcRequest(blocksDb, req, dbCtx)));
             return responses;
         } else {
-            const response = handleRpcRequest(blocksDb, requests, dbCtx);
+            const response = await handleRpcRequest(blocksDb, requests, dbCtx);
             return response;
         }
     });
@@ -341,6 +379,7 @@ const registerRoutes: ApiPlugin['registerRoutes'] = (app, dbCtx) => {
 
 const module: ApiPlugin = {
     name: 'rpc',
+    version: 1,
     requiredIndexers: [], // This API doesn't need any indexer databases
     registerRoutes
 };
