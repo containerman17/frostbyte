@@ -1,8 +1,9 @@
 import type { ApiPlugin } from "../../index.ts";
+import { decodeFunctionResult, encodeFunctionData } from 'viem';
 
 const module: ApiPlugin = {
     name: "erc20_tokens_api",
-    version: 1,
+    version: 2,  // Bumped: added tokenName field
     requiredIndexers: ['erc20_tokens_registry'],
 
     registerRoutes: (app, dbCtx) => {
@@ -17,9 +18,10 @@ const module: ApiPlugin = {
                             properties: {
                                 address: { type: 'string', description: 'Token contract address' },
                                 transferCount: { type: 'number', description: 'Total number of transfer events' },
-                                blockchainId: { type: 'string', description: 'Blockchain identifier' }
+                                blockchainId: { type: 'string', description: 'Blockchain identifier' },
+                                tokenName: { type: 'string', description: 'Token name from contract' }
                             },
-                            required: ['address', 'transferCount', 'blockchainId']
+                            required: ['address', 'transferCount', 'blockchainId', 'tokenName']
                         }
                     }
                 }
@@ -55,8 +57,51 @@ const module: ApiPlugin = {
                 .sort((a, b) => b.transferCount - a.transferCount)
                 .slice(0, 20);
 
+            // Fetch token names for top tokens
+            const nameAbi = [{
+                name: 'name',
+                type: 'function',
+                inputs: [],
+                outputs: [{ name: '', type: 'string' }],
+                stateMutability: 'view'
+            }] as const;
+
+            const tokensWithNames = await Promise.all(
+                topTokens.map(async (token) => {
+                    try {
+                        // Find the chain config for this token
+                        const chain = chains.find(c => c.blockchainId === token.blockchainId);
+                        if (!chain) {
+                            return { ...token, tokenName: 'Unknown' };
+                        }
+
+                        // Encode the function call
+                        const data = encodeFunctionData({
+                            abi: nameAbi,
+                            functionName: 'name'
+                        });
+
+                        // Make the eth call
+                        const result = await dbCtx.ethCall(chain.evmChainId, token.address as `0x${string}`, data);
+
+                        // Decode the result
+                        const decodedName = decodeFunctionResult({
+                            abi: nameAbi,
+                            functionName: 'name',
+                            data: result as `0x${string}`
+                        });
+
+                        return { ...token, tokenName: decodedName || 'Unknown' };
+                    } catch (error) {
+                        // If the call fails, the token might not implement name() or might be a proxy
+                        console.log(`Failed to get name for token ${token.address} on ${token.blockchainId}:`, error);
+                        return { ...token, tokenName: 'Unknown' };
+                    }
+                })
+            );
+
             console.timeEnd('top-erc20-tokens');
-            reply.status(200).send(topTokens);
+            reply.status(200).send(tokensWithNames);
         });
     }
 };
