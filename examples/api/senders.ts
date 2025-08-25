@@ -92,11 +92,7 @@ const module: ApiPlugin = {
         }, async (request, reply) => {
             console.time('tx-senders last year cached');
 
-            if (!dbCtx.getCacheDb) {
-                throw new Error('Cache database not available');
-            }
-
-            const cacheDb = dbCtx.getCacheDb();
+            const cacheDb = dbCtx.getGlobalCacheDb();
 
             // Sync new data from all chains
             syncGlobalSenders(cacheDb);

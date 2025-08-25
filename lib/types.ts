@@ -12,7 +12,8 @@ export interface RegisterRoutesContext {
     getIndexerDbConnection: (evmChainId: number, indexerName: string) => sqlite3.Database;
     getChainConfig: (evmChainIdOrBlockchainId: number | string) => ChainConfig | undefined;
     getAllChainConfigs: () => ChainConfig[];
-    getCacheDb?: () => sqlite3.Database;  // Available only if initializeCacheDb is defined
+    getGlobalCacheDb: () => sqlite3.Database;
+    ethCall: (evmChainIdOrBlockchainId: number | string, to: `0x${string}`, data: `0x${string}`) => Promise<string>;
 }
 
 export type TxBatch = {

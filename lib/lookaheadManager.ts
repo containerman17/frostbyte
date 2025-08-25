@@ -1,5 +1,7 @@
 import { currentLoad, mem } from "systeminformation";
 
+const LOOKAHEAD_DEBUG_LOGGING = false;
+
 // Lookahead management class
 class LookaheadManager {
     private currentLookahead = 0; // Start more aggressively
@@ -34,7 +36,9 @@ class LookaheadManager {
 
                 // Log only when lookahead changes
                 if (this.currentLookahead !== prevLookahead || this.lastLoggedLookahead !== this.currentLookahead) {
-                    console.log(`[LookaheadManager] Lookahead: ${prevLookahead} -> ${this.currentLookahead} (CPU: ${(cpuUsage * 100).toFixed(1)}%, Mem: ${(memUsage * 100).toFixed(1)}%)`);
+                    if (LOOKAHEAD_DEBUG_LOGGING) {
+                        console.log(`[LookaheadManager] Lookahead: ${prevLookahead} -> ${this.currentLookahead} (CPU: ${(cpuUsage * 100).toFixed(1)}%, Mem: ${(memUsage * 100).toFixed(1)}%)`);
+                    }
                     this.lastLoggedLookahead = this.currentLookahead;
                 }
             } catch (error) {

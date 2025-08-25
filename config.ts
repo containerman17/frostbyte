@@ -139,6 +139,7 @@ function createSqliteDb(config: CreateDbConfig & { chainId: string }): Database.
 
     // For plugin databases, check version and drop if needed
     if (config.type === "plugin") {
+        const dbName = path.basename(dbPath);
         handlePluginDatabaseVersioning({
             dbPath,
             dbName,
@@ -148,7 +149,7 @@ function createSqliteDb(config: CreateDbConfig & { chainId: string }): Database.
 
     // Create and open the database
     const db = new Database(dbPath, { readonly: config.readonly });
-    console.log(`Database ${dbName} ready at ${dbPath} (${config.readonly ? 'readonly' : 'read-write'})`);
+    console.log(`Database ${path.basename(dbPath)} ready at ${dbPath} (${config.readonly ? 'readonly' : 'read-write'})`);
 
     // Enable WAL mode for better concurrency
 
