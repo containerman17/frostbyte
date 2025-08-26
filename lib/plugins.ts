@@ -22,6 +22,8 @@ function findPluginFiles(dir: string, fileList: string[] = []): string[] {
         }
     }
 
+    console.log(`Plugin discovery: Found ${fileList.length} plugin files in ${dir}`);
+
     return fileList;
 }
 
@@ -62,10 +64,11 @@ export async function loadIndexingPlugins(pluginsDirs: string[]): Promise<Indexi
 
             if (isIndexingPlugin(defaultExport)) {
                 plugins.push(defaultExport);
-                // console.log(`Loaded indexing plugin: ${path.relative(pluginsDir, pluginPath)} (${defaultExport.name})`);
+                console.log(`Plugin discovery: Loaded indexing plugin: ${path.relative(pluginsDir, pluginPath)} (${defaultExport.name})`);
             }
         }
     }
+    console.log(`Plugin discovery: Loaded ${plugins.length} indexing plugins`);
     return plugins;
 }
 
@@ -87,9 +90,10 @@ export async function loadApiPlugins(pluginsDirs: string[]): Promise<ApiPlugin[]
 
             if (isApiPlugin(defaultExport)) {
                 plugins.push(defaultExport);
-                console.log(`Loaded API plugin: ${path.relative(pluginsDir, pluginPath)} (${defaultExport.name})`);
+                console.log(`Plugin discovery: Loaded API plugin: ${path.relative(pluginsDir, pluginPath)} (${defaultExport.name})`);
             }
         }
     }
+    console.log(`Plugin discovery: Loaded ${plugins.length} API plugins`);
     return plugins;
 }

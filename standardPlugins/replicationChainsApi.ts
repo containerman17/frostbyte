@@ -67,6 +67,41 @@ const module: ApiPlugin = {
 
             return reply.send(result);
         });
+
+        app.get('/api/replication/limits.json', {
+            schema: {
+                response: {
+                    200: {
+                        type: 'object',
+                        patternProperties: {
+                            '^.*$': {
+                                type: 'object',
+                                properties: {
+                                    rps: { type: 'number' },
+                                    concurrentRequests: { type: 'number' }
+                                },
+                                required: ['rps', 'concurrentRequests']
+                            }
+                        }
+                    }
+                }
+            }
+        }, (request, reply) => {
+            const host = request.hostname;
+
+            const limits = {
+                [host]: {
+                    rps: 1000,
+                    concurrentRequests: 100
+                },
+                default: {
+                    rps: 20,
+                    concurrentRequests: 20
+                }
+            };
+
+            return reply.send(limits);
+        });
     }
 };
 
