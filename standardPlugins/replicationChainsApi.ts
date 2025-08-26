@@ -1,22 +1,9 @@
 import type { ApiPlugin } from "../index";
-
-type ReplicationChain = {
-    chainName: string;
-    blockchainId: string;
-    evmChainId: number;
-    rpcConfig: {
-        rpcUrl: string;
-        requestBatchSize: number;
-        maxConcurrentRequests: number;
-        rps: number;
-        rpcSupportsDebug: boolean;
-        enableBatchSizeGrowth: boolean;
-        blocksPerBatch: number;
-    };
-}
+import type { ChainConfig } from "../config.js";
 
 const module: ApiPlugin = {
     name: "replicationChains",
+    version: 1,
     requiredIndexers: [],
 
     registerRoutes: (app, dbCtx) => {
@@ -36,13 +23,11 @@ const module: ApiPlugin = {
                                     properties: {
                                         rpcUrl: { type: 'string' },
                                         requestBatchSize: { type: 'number' },
-                                        maxConcurrentRequests: { type: 'number' },
-                                        rps: { type: 'number' },
                                         rpcSupportsDebug: { type: 'boolean' },
                                         enableBatchSizeGrowth: { type: 'boolean' },
                                         blocksPerBatch: { type: 'number' }
                                     },
-                                    required: ['rpcUrl', 'requestBatchSize', 'maxConcurrentRequests', 'rps', 'rpcSupportsDebug', 'enableBatchSizeGrowth', 'blocksPerBatch']
+                                    required: ['rpcUrl', 'requestBatchSize', 'rpcSupportsDebug', 'blocksPerBatch']
                                 }
                             },
                             required: ['chainName', 'blockchainId', 'evmChainId', 'rpcConfig']
@@ -52,7 +37,7 @@ const module: ApiPlugin = {
             }
         }, (request, reply) => {
             const configs = dbCtx.getAllChainConfigs();
-            const result: ReplicationChain[] = [];
+            const result: ChainConfig[] = [];
 
             // Get the host from the request
             const host = request.hostname;
@@ -73,11 +58,9 @@ const module: ApiPlugin = {
                     rpcConfig: {
                         rpcUrl: `${baseUrl}/api/${config.evmChainId}/rpc`,
                         requestBatchSize: 20,
-                        maxConcurrentRequests: 50,
-                        rps: 1000,
                         rpcSupportsDebug: config.rpcConfig.rpcSupportsDebug,
                         enableBatchSizeGrowth: false,
-                        blocksPerBatch: 1000,
+                        blocksPerBatch: 100,
                     }
                 });
             }

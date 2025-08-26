@@ -22,8 +22,6 @@ function requiredEnvString(name: string): string {
 const RpcConfigSchema = z.object({
     rpcUrl: z.string().url(),
     requestBatchSize: z.number().positive(),
-    maxConcurrentRequests: z.number().positive(),
-    rps: z.number().positive(),
     rpcSupportsDebug: z.boolean(),
     enableBatchSizeGrowth: z.boolean().optional()
 });
@@ -267,3 +265,17 @@ function handlePluginDatabaseVersioning(options: PluginDatabaseVersioningOptions
         }
     }
 }
+
+// Load rate limits from limits.json
+const LimitConfigSchema = z.object({
+    rps: z.number().positive().min(1).max(1000),
+    concurrentRequests: z.number().positive().min(1).max(1000)
+});
+
+const LimitsConfigSchema = z.record(z.string(), LimitConfigSchema);
+
+const limitsLocation = path.join(DATA_DIR, 'limits.json');
+const rawLimits = JSON.parse(fs.readFileSync(limitsLocation, 'utf8'));
+
+export const RATE_LIMITS = LimitsConfigSchema.parse(rawLimits);
+export type RateLimitConfig = z.infer<typeof LimitConfigSchema>;

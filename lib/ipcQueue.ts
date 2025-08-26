@@ -22,9 +22,11 @@ class RateLimitServer {
     }>;
 
     private limits: Record<string, QueueLimits>;
+    private defaultLimit: QueueLimits;
 
-    constructor(limits: Record<string, QueueLimits>) {
+    constructor(limits: Record<string, QueueLimits>, defaultLimit: QueueLimits) {
         this.limits = limits;
+        this.defaultLimit = defaultLimit;
         this.queues = new Map();
         for (const [queueName, queueLimits] of Object.entries(limits)) {
             this.queues.set(queueName, {
@@ -60,17 +62,17 @@ class RateLimitServer {
     }
 
     private handleAcquire(workerId: number, queueName: string, requestId: string) {
-        const queue = this.queues.get(queueName);
+        let queue = this.queues.get(queueName);
         if (!queue) {
-            const worker = cluster.workers?.[workerId];
-            if (worker) {
-                worker.send({
-                    type: 'error',
-                    requestId,
-                    error: `Unknown queue: ${queueName}`
-                });
-            }
-            return;
+            // Create new queue with default limits for unknown domains
+            queue = {
+                limits: this.defaultLimit,
+                currentRequests: 0,
+                requestsThisSecond: 0,
+                pendingRequests: []
+            };
+            this.queues.set(queueName, queue);
+            console.log(`Created new queue '${queueName}' with default limits: RPS=${this.defaultLimit.rps}, Concurrent=${this.defaultLimit.concurrentRequests}`);
         }
 
         if (queue.currentRequests < queue.limits.concurrentRequests &&
@@ -130,12 +132,15 @@ class RateLimitServer {
     }
 }
 
-export function startRateLimitServer(limits: Record<string, QueueLimits>) {
+export function startRateLimitServer(
+    limits: Record<string, QueueLimits>,
+    defaultLimit: QueueLimits = { rps: 10, concurrentRequests: 5 }
+) {
     if (isServerStarted) {
         throw new Error('RateLimitServer already started');
     }
     isServerStarted = true;
-    return (new RateLimitServer(limits)).start();
+    return (new RateLimitServer(limits, defaultLimit)).start();
 }
 
 interface QueuedTask<T> {
@@ -144,7 +149,7 @@ interface QueuedTask<T> {
     reject: (error: Error) => void;
 }
 
-class RateLimitClient {
+export class RateLimitClient {
     private pendingRequests: Map<string, {
         resolve: () => void;
         reject: (error: Error) => void;

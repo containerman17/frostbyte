@@ -11,7 +11,8 @@ const limits = {
 if (cluster.isPrimary) {
     console.log(`Primary ${process.pid} starting rate limit server`);
 
-    await startRateLimitServer(limits);
+    // Start server with explicit limits and a default limit for unknown domains
+    await startRateLimitServer(limits, { rps: 3, concurrentRequests: 2 });
 
     // Fork 2 worker processes
     cluster.fork();
@@ -123,6 +124,29 @@ if (cluster.isPrimary) {
         console.log(`[${workerId}] Mixed domain requests done in ${Date.now() - startTime}ms`);
     }
 
+    // Test 4: Unknown domain gets default limits
+    async function testDefaultLimit() {
+        console.log(`\n[Worker ${workerId}] === TEST 4: Default Limit for Unknown Domain (3 RPS, 2 concurrent) ===`);
+
+        const startTime = Date.now();
+        const promises = [];
+
+        // Submit 6 requests to an unknown domain
+        for (let i = 0; i < 6; i++) {
+            promises.push(
+                client.execute('unknown-domain.com', async () => {
+                    const reqTime = Date.now();
+                    console.log(`[${workerId}] Unknown domain request ${i} executed at +${reqTime - startTime}ms`);
+                    await new Promise(resolve => setTimeout(resolve, 300)); // Simulate work
+                    return i;
+                })
+            );
+        }
+
+        await Promise.all(promises);
+        console.log(`[${workerId}] Unknown domain requests done in ${Date.now() - startTime}ms`);
+    }
+
     // Run tests sequentially
     async function runTests() {
         try {
@@ -131,8 +155,10 @@ if (cluster.isPrimary) {
             if (workerId % 2 === 0) { // Even worker IDs run first set of tests
                 await testConcurrencyLimit();
                 await testRpsLimit();
+                await testDefaultLimit();
             } else { // Odd worker IDs run different test
                 await testSeparateDomains();
+                await testDefaultLimit();
             }
 
             console.log(`[${workerId}] All tests completed`);

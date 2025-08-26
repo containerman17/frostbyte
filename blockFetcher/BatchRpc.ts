@@ -1,8 +1,9 @@
 import { utils } from "@avalabs/avalanchejs";
-import PQueue from 'p-queue';
 import type * as EVMTypes from './evmTypes.js';
 import { DynamicBatchSizeManager } from './DynamicBatchSizeManager.js';
 import { RpcConfig } from "../config.js";
+import { getRateLimitClient } from '../lib/ipcQueue.js';
+import type { RateLimitClient } from '../lib/ipcQueue.js';
 
 // Define a type for the JSON-RPC request and response structures
 interface JsonRpcRequest {
@@ -31,17 +32,16 @@ export interface StoredBlock {
 
 export class BatchRpc {
     private rpcUrl: string;
-    private queue: PQueue;
     private requestBatchSize: number;
     private dynamicBatchSizeManager: DynamicBatchSizeManager | null;
     private enableBatchSizeGrowth: boolean;
     private rpcSupportsDebug: boolean;
+    private rateLimitClient: RateLimitClient;
+    private rpcDomain: string;
 
     constructor({
         rpcUrl,
         requestBatchSize,
-        maxConcurrentRequests,
-        rps,
         rpcSupportsDebug,
         enableBatchSizeGrowth = false,
     }: RpcConfig) {
@@ -50,15 +50,18 @@ export class BatchRpc {
         }
 
         this.rpcUrl = rpcUrl;
-        this.queue = new PQueue({
-            concurrency: maxConcurrentRequests,
-            interval: 1000, // 1 second
-            intervalCap: rps
-        });
-        // Prevent unhandled 'error' events from crashing the process
-        this.queue.on('error', error => {
-            console.error('BatchRpc queue error:', error);
-        });
+
+        // Extract domain from RPC URL for rate limiting
+        try {
+            const url = new URL(rpcUrl);
+            this.rpcDomain = url.hostname;
+        } catch (error) {
+            throw new Error(`Failed to parse RPC URL: ${rpcUrl}`);
+        }
+
+        // Always create rate limit client since BatchRpc only runs in worker processes
+        this.rateLimitClient = getRateLimitClient();
+
         this.requestBatchSize = requestBatchSize;
         this.enableBatchSizeGrowth = enableBatchSizeGrowth;
         this.rpcSupportsDebug = rpcSupportsDebug;
@@ -69,22 +72,27 @@ export class BatchRpc {
      * Makes an HTTP request using Node.js built-in fetch with automatic compression handling
      */
     private async makeHttpRequest(body: string): Promise<{ ok: boolean; status: number; json: () => Promise<any>; text: () => Promise<string> }> {
-        const response = await fetch(this.rpcUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'Accept-Encoding': 'gzip, deflate, br',
-            },
-            body
-        });
+        const doFetch = async () => {
+            const response = await fetch(this.rpcUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'Accept-Encoding': 'gzip, deflate, br',
+                },
+                body
+            });
 
-        return {
-            ok: response.ok,
-            status: response.status,
-            json: () => response.json(),
-            text: () => response.text()
+            return {
+                ok: response.ok,
+                status: response.status,
+                json: () => response.json(),
+                text: () => response.text()
+            };
         };
+
+        // Always use rate limiter since BatchRpc only runs in worker processes
+        return this.rateLimitClient.execute(this.rpcDomain, doFetch);
     }
 
     /**
@@ -93,67 +101,65 @@ export class BatchRpc {
     private async sendBatch<T = any>(
         requests: Array<{ method: string; params: any[]; originalIndex: number }>
     ): Promise<Array<{ originalIndex: number; result?: T; error?: any }>> {
-        return await this.queue.add(async () => {
-            try {
-                // Create JSON-RPC batch request
-                const jsonRpcRequests: JsonRpcRequest[] = requests.map((req, batchIndex) => ({
-                    jsonrpc: "2.0",
-                    id: batchIndex, // Local batch ID
-                    method: req.method,
-                    params: req.params
-                }));
+        try {
+            // Create JSON-RPC batch request
+            const jsonRpcRequests: JsonRpcRequest[] = requests.map((req, batchIndex) => ({
+                jsonrpc: "2.0",
+                id: batchIndex, // Local batch ID
+                method: req.method,
+                params: req.params
+            }));
 
-                const response = await this.makeHttpRequest(JSON.stringify(jsonRpcRequests));
+            const response = await this.makeHttpRequest(JSON.stringify(jsonRpcRequests));
 
-                if (!response.ok) {
-                    this.dynamicBatchSizeManager?.onError();
-                    throw new Error(`RPC batch request failed to ${this.rpcUrl} with status ${response.status}: ${await response.text().catch(() => "Failed to get error text")}`);
-                }
-
-                const jsonData = await response.json();
-
-                // Handle both single response and array of responses
-                let responses: JsonRpcResponse[];
-                if (Array.isArray(jsonData)) {
-                    responses = jsonData;
-                } else if (jsonData && typeof jsonData === 'object' && 'jsonrpc' in jsonData) {
-                    responses = [jsonData as JsonRpcResponse];
-                } else {
-                    this.dynamicBatchSizeManager?.onError();
-                    throw new Error('Invalid JSON-RPC batch response format');
-                }
-
-                // Map responses back to original indices
-                const responseMap = new Map<number, JsonRpcResponse>();
-                responses.forEach(resp => {
-                    if (typeof resp.id === 'number') {
-                        responseMap.set(resp.id, resp);
-                    }
-                });
-
-                const results = requests.map((req, batchIndex) => {
-                    const resp = responseMap.get(batchIndex);
-                    return {
-                        originalIndex: req.originalIndex,
-                        result: resp?.result as T,
-                        error: resp?.error
-                    };
-                });
-
-                // Check if any individual requests failed
-                const hasErrors = results.some(result => result.error);
-                if (hasErrors) {
-                    this.dynamicBatchSizeManager?.onError();
-                } else {
-                    this.dynamicBatchSizeManager?.onSuccess();
-                }
-
-                return results;
-            } catch (error) {
+            if (!response.ok) {
                 this.dynamicBatchSizeManager?.onError();
-                throw error;
+                throw new Error(`RPC batch request failed to ${this.rpcUrl} with status ${response.status}: ${await response.text().catch(() => "Failed to get error text")}`);
             }
-        }, { throwOnTimeout: true })
+
+            const jsonData = await response.json();
+
+            // Handle both single response and array of responses
+            let responses: JsonRpcResponse[];
+            if (Array.isArray(jsonData)) {
+                responses = jsonData;
+            } else if (jsonData && typeof jsonData === 'object' && 'jsonrpc' in jsonData) {
+                responses = [jsonData as JsonRpcResponse];
+            } else {
+                this.dynamicBatchSizeManager?.onError();
+                throw new Error('Invalid JSON-RPC batch response format');
+            }
+
+            // Map responses back to original indices
+            const responseMap = new Map<number, JsonRpcResponse>();
+            responses.forEach(resp => {
+                if (typeof resp.id === 'number') {
+                    responseMap.set(resp.id, resp);
+                }
+            });
+
+            const results = requests.map((req, batchIndex) => {
+                const resp = responseMap.get(batchIndex);
+                return {
+                    originalIndex: req.originalIndex,
+                    result: resp?.result as T,
+                    error: resp?.error
+                };
+            });
+
+            // Check if any individual requests failed
+            const hasErrors = results.some(result => result.error);
+            if (hasErrors) {
+                this.dynamicBatchSizeManager?.onError();
+            } else {
+                this.dynamicBatchSizeManager?.onSuccess();
+            }
+
+            return results;
+        } catch (error) {
+            this.dynamicBatchSizeManager?.onError();
+            throw error;
+        }
     }
 
     /**

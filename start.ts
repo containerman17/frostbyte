@@ -3,9 +3,10 @@ import os from 'node:os';
 import { BlocksDBHelper } from './blockFetcher/BlocksDBHelper';
 import { startFetchingLoop } from './blockFetcher/startFetchingLoop.js';
 import { BatchRpc } from './blockFetcher/BatchRpc.js';
-import { CHAIN_CONFIGS, getCurrentChainConfig, getSqliteDb } from './config.js';
+import { CHAIN_CONFIGS, getCurrentChainConfig, getSqliteDb, RATE_LIMITS } from './config.js';
 import { createApiServer } from './api.js';
 import { startIndexingLoop } from './indexer.js';
+import { startRateLimitServer } from './lib/ipcQueue.js';
 
 // Log any uncaught exceptions or promise rejections to aid debugging of worker crashes
 process.on('unhandledRejection', reason => {
@@ -23,6 +24,11 @@ if (cluster.isPrimary) {
     const numCpus = os.cpus().length;
     const numApiWorkers = Math.max(1, Math.floor(numCpus / 2));
     console.log(`System has ${numCpus} CPU cores, will spawn ${numApiWorkers} API workers`);
+
+    // Initialize rate limit server with domain limits from limits.json
+    const { default: defaultLimit, ...domainLimits } = RATE_LIMITS;
+    const finalDefaultLimit = defaultLimit || { rps: 20, concurrentRequests: 50 };
+    startRateLimitServer(domainLimits, finalDefaultLimit);
 
     for (let config of CHAIN_CONFIGS) {
         // Spawn workers based on roles
@@ -49,8 +55,6 @@ if (cluster.isPrimary) {
             }
         }
     }
-
-
 
     // Kill all workers when parent exits
     const killAllWorkers = () => {

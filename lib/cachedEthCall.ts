@@ -2,22 +2,33 @@ import { ChainConfig } from "../config";
 import { createPublicClient, http, PublicClient } from 'viem';
 import crypto from 'crypto';
 import sqlite3 from 'better-sqlite3';
+import { getRateLimitClient, RateLimitClient } from './ipcQueue.js';
 
-// Map to store viem clients per chain
-const viemClients = new Map<number, PublicClient>();
+// Map to store viem clients and their domains per chain
+const viemClients = new Map<number, { client: PublicClient; domain: string }>();
 
-function getViemClient(evmChainId: number, chainConfigs: ChainConfig[]): PublicClient {
+
+function getViemClient(evmChainId: number, chainConfigs: ChainConfig[]): { client: PublicClient; domain: string } {
     if (!viemClients.has(evmChainId)) {
         const chainConfig = chainConfigs.find(c => c.evmChainId === evmChainId);
         if (!chainConfig) {
             throw new Error(`Chain config not found for evmChainId ${evmChainId}`);
         }
 
+        // Extract domain from RPC URL for rate limiting
+        let domain: string;
+        try {
+            const url = new URL(chainConfig.rpcConfig.rpcUrl);
+            domain = url.hostname;
+        } catch (error) {
+            throw new Error(`Failed to parse RPC URL: ${chainConfig.rpcConfig.rpcUrl}`);
+        }
+
         const client = createPublicClient({
             transport: http(chainConfig.rpcConfig.rpcUrl),
         });
 
-        viemClients.set(evmChainId, client);
+        viemClients.set(evmChainId, { client, domain });
     }
 
     return viemClients.get(evmChainId)!;
@@ -66,11 +77,13 @@ export async function cachedEthCall(
         return cached.result as `0x${string}`;
     }
 
-    // Make the actual call
-    const client = getViemClient(evmChainId, chainConfigs);
-    const result = await client.call({
-        to,
-        data
+    // Make the actual call with rate limiting
+    const { client, domain } = getViemClient(evmChainId, chainConfigs);
+    const result = await getRateLimitClient().execute(domain, async () => {
+        return client.call({
+            to,
+            data
+        });
     });
 
     // Ensure result is properly formatted
