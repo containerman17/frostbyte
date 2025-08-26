@@ -17,16 +17,19 @@ RUN --mount=type=cache,id=npm-cache,target=/root/.npm \
 
 COPY . .
 
-# Create a symlink for the SDK so plugins can import from 'frostbyte-sdk'
-# This mimics what npm link would do in development
-RUN cd /usr/local/lib && \
-    mkdir -p node_modules && \
-    ln -s /app node_modules/frostbyte-sdk
+# Copy and make entrypoint script executable
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-# Set NODE_PATH so Node.js can find the linked module
-ENV NODE_PATH=/usr/local/lib/node_modules:/app/node_modules
+# Create a global npm link for frostbyte-sdk
+# This makes it available system-wide for any module
+RUN npm link
+
+# Set NODE_PATH to include global npm modules and plugins
+ENV NODE_PATH=/usr/local/lib/node_modules:/app/node_modules:/plugins/node_modules
 
 # Increase Node.js heap size to 16GB
 ENV NODE_OPTIONS="--max-old-space-size=16384"
 
+ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["node", "cli.ts", "run", "--plugins-dir=/plugins", "--data-dir=/data"]

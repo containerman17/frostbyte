@@ -15,6 +15,10 @@ function findPluginFiles(dir: string, fileList: string[] = []): string[] {
         const stat = fs.statSync(filePath);
 
         if (stat.isDirectory()) {
+            // Skip node_modules directories
+            if (file === 'node_modules') {
+                continue;
+            }
             // Recursively search subdirectories
             findPluginFiles(filePath, fileList);
         } else if (file.endsWith('.ts') || file.endsWith('.js')) {
@@ -57,14 +61,19 @@ export async function loadIndexingPlugins(pluginsDirs: string[]): Promise<Indexi
 
         const pluginFiles = findPluginFiles(pluginsDir);
         for (const pluginPath of pluginFiles) {
-            // Use file URL for proper ESM loading
-            const fileUrl = pathToFileURL(pluginPath).href;
-            const plugin = await import(fileUrl);
-            const defaultExport = plugin.default;
+            try {
+                // Use file URL for proper ESM loading
+                const fileUrl = pathToFileURL(pluginPath).href;
+                const plugin = await import(fileUrl);
+                const defaultExport = plugin.default;
 
-            if (isIndexingPlugin(defaultExport)) {
-                plugins.push(defaultExport);
-                console.log(`Plugin discovery: Loaded indexing plugin: ${path.relative(pluginsDir, pluginPath)} (${defaultExport.name})`);
+                if (isIndexingPlugin(defaultExport)) {
+                    plugins.push(defaultExport);
+                    console.log(`Plugin discovery: Loaded indexing plugin: ${path.relative(pluginsDir, pluginPath)} (${defaultExport.name})`);
+                }
+            } catch (error) {
+                console.error(`Failed to load plugin ${pluginPath}:`, error);
+                // Continue loading other plugins
             }
         }
     }
@@ -83,14 +92,19 @@ export async function loadApiPlugins(pluginsDirs: string[]): Promise<ApiPlugin[]
 
         const pluginFiles = findPluginFiles(pluginsDir);
         for (const pluginPath of pluginFiles) {
-            // Use file URL for proper ESM loading
-            const fileUrl = pathToFileURL(pluginPath).href;
-            const plugin = await import(fileUrl);
-            const defaultExport = plugin.default;
+            try {
+                // Use file URL for proper ESM loading
+                const fileUrl = pathToFileURL(pluginPath).href;
+                const plugin = await import(fileUrl);
+                const defaultExport = plugin.default;
 
-            if (isApiPlugin(defaultExport)) {
-                plugins.push(defaultExport);
-                console.log(`Plugin discovery: Loaded API plugin: ${path.relative(pluginsDir, pluginPath)} (${defaultExport.name})`);
+                if (isApiPlugin(defaultExport)) {
+                    plugins.push(defaultExport);
+                    console.log(`Plugin discovery: Loaded API plugin: ${path.relative(pluginsDir, pluginPath)} (${defaultExport.name})`);
+                }
+            } catch (error) {
+                console.error(`Failed to load plugin ${pluginPath}:`, error);
+                // Continue loading other plugins
             }
         }
     }

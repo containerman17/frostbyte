@@ -12,7 +12,11 @@ import executeIndexingTask from './indexer_worker.js';
 const piscina = new Piscina({
     filename: new URL('./indexer_worker.ts', import.meta.url).toString(),
     maxThreads: os.cpus().length,
-    execArgv: process.execArgv
+    execArgv: process.execArgv,
+    env: {
+        ...process.env,
+        NODE_PATH: process.env['NODE_PATH']
+    }
 });
 
 const TXS_PER_LOOP = 50000;
