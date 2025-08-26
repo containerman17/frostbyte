@@ -17,18 +17,16 @@ RUN --mount=type=cache,id=npm-cache,target=/root/.npm \
 
 COPY . .
 
-RUN npm run build
+# Create a symlink for the SDK so plugins can import from 'frostbyte-sdk'
+# This mimics what npm link would do in development
+RUN cd /usr/local/lib && \
+    mkdir -p node_modules && \
+    ln -s /app node_modules/frostbyte-sdk
 
-# Create a tarball of the package and install it globally
-# This makes frostbyte-sdk available for external plugins
-RUN npm pack && \
-    npm install -g frostbyte-sdk-*.tgz && \
-    rm frostbyte-sdk-*.tgz
-
-# Set NODE_PATH to include global modules so external plugins can resolve imports
-ENV NODE_PATH=/usr/local/lib/node_modules
+# Set NODE_PATH so Node.js can find the linked module
+ENV NODE_PATH=/usr/local/lib/node_modules:/app/node_modules
 
 # Increase Node.js heap size to 16GB
 ENV NODE_OPTIONS="--max-old-space-size=16384"
 
-CMD ["frostbyte", "run", "--plugins-dir=/plugins", "--data-dir=/data"]
+CMD ["node", "cli.ts", "run", "--plugins-dir=/plugins", "--data-dir=/data"]

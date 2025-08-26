@@ -36,8 +36,6 @@ const testExtended = true;
 const localRpc = new BatchRpc({
     rpcUrl: `http://localhost:3080/api/${evmChainId}/rpc`,
     requestBatchSize: 20,
-    maxConcurrentRequests: 100,
-    rps: 20,
     rpcSupportsDebug: testDebug,
     enableBatchSizeGrowth: false
 });

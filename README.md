@@ -159,8 +159,6 @@ Create `chains.json` in your data directory:
   "rpcConfig": {
     "rpcUrl": "https://api.avax.network/ext/bc/C/rpc",
     "requestBatchSize": 20,
-    "maxConcurrentRequests": 10,
-    "rps": 50,
     "rpcSupportsDebug": false,
     "blocksPerBatch": 100
   }

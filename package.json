@@ -1,23 +1,24 @@
 {
   "name": "frostbyte-sdk",
-  "version": "1.0.6",
+  "version": "2.0.0",
   "description": "A high-performance blockchain indexer with TypeScript plugin support",
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "index.ts",
   "bin": {
-    "frostbyte": "./dist/cli.js"
+    "frostbyte": "./cli.ts"
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "dev:start": "node cli.ts run --plugins-dir ./examples/api,./examples/indexing --data-dir ./data",
+    "dev:start": "node cli.ts run --plugins-dir ./examples/ --data-dir ./data",
     "dev:indexer": "ROLES=indexer npm run dev:start",
     "dev:api": "ROLES=api npm run dev:start",
     "dev:fetcher": "ROLES=fetcher npm run dev:start",
     "dev": "nodemon --watch plugins --watch data --exec \"npm run dev:start\"",
-    "clean": "rm -rf data/*/p_*"
+    "clean": "rm -rf data/*/p_*",
+    "dev:docker": "docker build -t frostbyte-sdk . && docker run --rm -it -v $(pwd)/data:/data -v $(pwd)/examples:/plugins frostbyte-sdk",
+    "dev:docker:temp_remove_me": "docker build -t frostbyte-sdk . && docker run --rm -it -v $(pwd)/data:/data -v ~/experiments/2025-06/11_ictt_dash/plugins/:/plugins frostbyte-sdk"
   },
   "keywords": [
     "blockchain",

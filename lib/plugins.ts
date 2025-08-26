@@ -3,6 +3,28 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+function findPluginFiles(dir: string, fileList: string[] = []): string[] {
+    if (!fs.existsSync(dir)) {
+        return fileList;
+    }
+
+    const files = fs.readdirSync(dir);
+
+    for (const file of files) {
+        const filePath = path.join(dir, file);
+        const stat = fs.statSync(filePath);
+
+        if (stat.isDirectory()) {
+            // Recursively search subdirectories
+            findPluginFiles(filePath, fileList);
+        } else if (file.endsWith('.ts') || file.endsWith('.js')) {
+            fileList.push(filePath);
+        }
+    }
+
+    return fileList;
+}
+
 function isIndexingPlugin(plugin: any): plugin is IndexingPlugin<any> {
     return plugin &&
         typeof plugin.name === 'string' &&
@@ -31,19 +53,16 @@ export async function loadIndexingPlugins(pluginsDirs: string[]): Promise<Indexi
             continue;
         }
 
-        const pluginFiles = fs.readdirSync(pluginsDir);
-        for (const file of pluginFiles) {
-            if (file.endsWith('.ts') || file.endsWith('.js')) {
-                const pluginPath = path.join(pluginsDir, file);
-                // Use file URL for proper ESM loading
-                const fileUrl = pathToFileURL(pluginPath).href;
-                const plugin = await import(fileUrl);
-                const defaultExport = plugin.default;
+        const pluginFiles = findPluginFiles(pluginsDir);
+        for (const pluginPath of pluginFiles) {
+            // Use file URL for proper ESM loading
+            const fileUrl = pathToFileURL(pluginPath).href;
+            const plugin = await import(fileUrl);
+            const defaultExport = plugin.default;
 
-                if (isIndexingPlugin(defaultExport)) {
-                    plugins.push(defaultExport);
-                    // console.log(`Loaded indexing plugin: ${file} (${defaultExport.name})`);
-                }
+            if (isIndexingPlugin(defaultExport)) {
+                plugins.push(defaultExport);
+                // console.log(`Loaded indexing plugin: ${path.relative(pluginsDir, pluginPath)} (${defaultExport.name})`);
             }
         }
     }
@@ -59,19 +78,16 @@ export async function loadApiPlugins(pluginsDirs: string[]): Promise<ApiPlugin[]
             continue;
         }
 
-        const pluginFiles = fs.readdirSync(pluginsDir);
-        for (const file of pluginFiles) {
-            if (file.endsWith('.ts') || file.endsWith('.js')) {
-                const pluginPath = path.join(pluginsDir, file);
-                // Use file URL for proper ESM loading
-                const fileUrl = pathToFileURL(pluginPath).href;
-                const plugin = await import(fileUrl);
-                const defaultExport = plugin.default;
+        const pluginFiles = findPluginFiles(pluginsDir);
+        for (const pluginPath of pluginFiles) {
+            // Use file URL for proper ESM loading
+            const fileUrl = pathToFileURL(pluginPath).href;
+            const plugin = await import(fileUrl);
+            const defaultExport = plugin.default;
 
-                if (isApiPlugin(defaultExport)) {
-                    plugins.push(defaultExport);
-                    console.log(`Loaded API plugin: ${file} (${defaultExport.name})`);
-                }
+            if (isApiPlugin(defaultExport)) {
+                plugins.push(defaultExport);
+                console.log(`Loaded API plugin: ${path.relative(pluginsDir, pluginPath)} (${defaultExport.name})`);
             }
         }
     }

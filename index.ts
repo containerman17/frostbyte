@@ -24,3 +24,4 @@ export { default as RPCIndexerAPIPlugin } from './standardPlugins/rpcApi.ts';
 export { default as ChainsIndexerAPIPlugin } from './standardPlugins/chainsApi.ts';
 
 export * as viem from "viem";
+export { default as betterSqlite3 } from "better-sqlite3";

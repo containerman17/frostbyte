@@ -1,5 +1,4 @@
-import type { ApiPlugin } from "../../index.ts";
-import { decodeFunctionResult, encodeFunctionData } from 'viem';
+import { type ApiPlugin, viem } from "../../index.ts";
 
 const module: ApiPlugin = {
     name: "erc20_tokens_api",
@@ -76,7 +75,7 @@ const module: ApiPlugin = {
                         }
 
                         // Encode the function call
-                        const data = encodeFunctionData({
+                        const data = viem.encodeFunctionData({
                             abi: nameAbi,
                             functionName: 'name'
                         });
@@ -85,7 +84,7 @@ const module: ApiPlugin = {
                         const result = await dbCtx.ethCall(chain.evmChainId, token.address as `0x${string}`, data);
 
                         // Decode the result
-                        const decodedName = decodeFunctionResult({
+                        const decodedName = viem.decodeFunctionResult({
                             abi: nameAbi,
                             functionName: 'name',
                             data: result as `0x${string}`
