@@ -51,21 +51,15 @@ export async function startIndexingLoop(chainConfig: ChainConfig) {
             readonly: false,
         });
 
-        // Initialize indexer if needed
-        const isIndexerInitialized = getIntValue(db, `isIndexerInitialized_${indexer.name}`, 0) === 1;
+        // Initialize indexer
+        console.log(`[${indexer.name} - ${chainConfig.chainName}] Initializing database`);
 
-        if (!isIndexerInitialized) {
-            // Initialize a new database for this indexer
-            console.log(`[${indexer.name} - ${chainConfig.chainName}] Initializing new database`);
+        // Run initialization in a transaction
+        const initializeTransaction = db.transaction(() => {
+            indexer.initialize(db);
+        });
 
-            // Combine indexer.initialize and setIntValue in one SQLite transaction
-            const initializeTransaction = db.transaction(() => {
-                indexer.initialize(db);
-                setIntValue(db, `isIndexerInitialized_${indexer.name}`, 1);
-            });
-
-            initializeTransaction();
-        }
+        initializeTransaction();
 
         startPromises.push(startSingleIndexer(indexer, db, blocksDb));
     }
