@@ -5,7 +5,6 @@ import { startFetchingLoop } from './blockFetcher/startFetchingLoop.js';
 import { BatchRpc } from './blockFetcher/BatchRpc.js';
 import { CHAIN_CONFIGS, getCurrentChainConfig, getSqliteDb, RATE_LIMITS } from './config.js';
 import { createApiServer } from './api.js';
-import { startIndexingLoop, startIndexingLoopAllChains } from './indexer.js';
 import { startRateLimitServer } from './lib/ipcQueue.js';
 
 // Log any uncaught exceptions or promise rejections to aid debugging of worker crashes
@@ -106,6 +105,7 @@ if (cluster.isPrimary) {
         const port = parseInt(process.env['PORT'] || '3080', 10);
         await apiServer.start(port);
     } else if (process.env['ROLE'] === 'indexer') {
+        const { startIndexingLoopAllChains } = await import('./indexer.js');
         await startIndexingLoopAllChains(CHAIN_CONFIGS);
     } else {
         throw new Error('unknown role');

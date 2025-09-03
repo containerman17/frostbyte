@@ -9,15 +9,22 @@ import { lookaheadManager, type LookaheadManager } from './lib/lookaheadManager.
 import os from 'node:os';
 import executeIndexingTask from './indexer_worker.js';
 
-const piscina = new Piscina({
-    filename: new URL('./indexer_worker.ts', import.meta.url).toString(),
-    maxThreads: os.cpus().length,
-    execArgv: process.execArgv,
-    env: {
-        ...process.env,
-        NODE_PATH: process.env['NODE_PATH']
+let piscina: Piscina | null = null;
+
+function getPiscina(): Piscina {
+    if (!piscina) {
+        piscina = new Piscina({
+            filename: new URL('./indexer_worker.ts', import.meta.url).toString(),
+            maxThreads: os.cpus().length,
+            execArgv: process.execArgv,
+            env: {
+                ...process.env,
+                NODE_PATH: process.env['NODE_PATH']
+            }
+        });
     }
-});
+    return piscina;
+}
 
 const TXS_PER_LOOP = 50000;
 const SLEEP_TIME = 3000;
@@ -101,7 +108,7 @@ async function startSingleIndexer(chainConfig: ChainConfig, indexer: IndexingPlu
                 continue;
             }
 
-            batchPromises.set(fromTx, piscina.run({
+            batchPromises.set(fromTx, getPiscina().run({
                 chainConfig,
                 pluginName: indexer.name,
                 pluginVersion: indexer.version,
@@ -122,7 +129,7 @@ async function startSingleIndexer(chainConfig: ChainConfig, indexer: IndexingPlu
         } else if (lastIndexedTx < totalTxCount) {
             // Process final partial batch (not pre-fetched)
             const toTx = Math.min(totalTxCount, lastIndexedTx + TXS_PER_LOOP);
-            batch = await piscina.run({
+            batch = await getPiscina().run({
                 chainConfig,
                 pluginName: indexer.name,
                 pluginVersion: indexer.version,
