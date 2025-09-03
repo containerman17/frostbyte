@@ -27,6 +27,7 @@ function getPiscina(): Piscina {
 }
 
 const TXS_PER_LOOP = 50000;
+const INLINE_THRESHOLD = TXS_PER_LOOP / 10; // Process inline if less than 5000 txs
 const SLEEP_TIME = 3000;
 
 export async function startIndexingLoopAllChains(chainConfigs: ChainConfig[]) {
@@ -108,6 +109,7 @@ async function startSingleIndexer(chainConfig: ChainConfig, indexer: IndexingPlu
                 continue;
             }
 
+            // Full batches always use workers (they're always TXS_PER_LOOP = 50k)
             batchPromises.set(fromTx, getPiscina().run({
                 chainConfig,
                 pluginName: indexer.name,
@@ -129,13 +131,28 @@ async function startSingleIndexer(chainConfig: ChainConfig, indexer: IndexingPlu
         } else if (lastIndexedTx < totalTxCount) {
             // Process final partial batch (not pre-fetched)
             const toTx = Math.min(totalTxCount, lastIndexedTx + TXS_PER_LOOP);
-            batch = await getPiscina().run({
-                chainConfig,
-                pluginName: indexer.name,
-                pluginVersion: indexer.version,
-                fromTx: lastIndexedTx,
-                toTx
-            });
+            const batchSize = toTx - lastIndexedTx;
+
+            if (batchSize < INLINE_THRESHOLD) {
+                // Process small batches inline to avoid worker overhead
+                // Wrap sync call in Promise.resolve for type consistency
+                batch = await Promise.resolve(executeIndexingTask({
+                    chainConfig,
+                    pluginName: indexer.name,
+                    pluginVersion: indexer.version,
+                    fromTx: lastIndexedTx,
+                    toTx
+                }));
+            } else {
+                // Use worker threads for larger batches
+                batch = await getPiscina().run({
+                    chainConfig,
+                    pluginName: indexer.name,
+                    pluginVersion: indexer.version,
+                    fromTx: lastIndexedTx,
+                    toTx
+                });
+            }
             processedToTx = toTx;
         } else {
             // No work to do
@@ -160,8 +177,9 @@ async function startSingleIndexer(chainConfig: ChainConfig, indexer: IndexingPlu
         const indexingPercentage = ((lastIndexedTx / lastStoredBlock) * 100).toFixed(2);
 
         if (batch.indexedTxs > 0) {
+            const processingMode = batch.indexedTxs < INLINE_THRESHOLD ? 'inline' : 'worker';
             console.log(
-                `[${indexer.name} - ${chainConfig.chainName}] Retrieved ${batch.indexedTxs} txs in ${Math.round(indexingStart - getStart)}ms`,
+                `[${indexer.name} - ${chainConfig.chainName}] Retrieved ${batch.indexedTxs} txs in ${Math.round(indexingStart - getStart)}ms (${processingMode})`,
                 `Indexed ${batch.indexedTxs} txs in ${Math.round(indexingFinish - indexingStart)}ms`,
                 `(${indexingPercentage}% - tx ${lastIndexedTx}/${totalTxCount}, queue: ${batchPromises.size}, lookahead: ${lookaheadManager.getCurrentLookahead()})`,
                 `Total time: ${Math.round((performance.now() - startTime) / 1000)}s`
