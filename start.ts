@@ -5,7 +5,7 @@ import { startFetchingLoop } from './blockFetcher/startFetchingLoop.js';
 import { BatchRpc } from './blockFetcher/BatchRpc.js';
 import { CHAIN_CONFIGS, getCurrentChainConfig, getSqliteDb, RATE_LIMITS } from './config.js';
 import { createApiServer } from './api.js';
-import { startIndexingLoop } from './indexer.js';
+import { startIndexingLoop, startIndexingLoopAllChains } from './indexer.js';
 import { startRateLimitServer } from './lib/ipcQueue.js';
 
 // Log any uncaught exceptions or promise rejections to aid debugging of worker crashes
@@ -19,6 +19,7 @@ process.on('uncaughtException', error => {
 if (cluster.isPrimary) {
     const roles = process.env['ROLES']?.split(',') || ['api', 'indexer', 'fetcher'];
     let apiStarted = false;
+    let indexerStarted = false;
 
     // Calculate number of API workers (CPU cores / 2, minimum 1)
     const numCpus = os.cpus().length;
@@ -34,11 +35,13 @@ if (cluster.isPrimary) {
         // Spawn workers based on roles
         for (const role of roles) {
             if (role === 'indexer') {
-                const worker = cluster.fork({
-                    ROLE: 'indexer',
-                    CHAIN_ID: config.blockchainId,
-                });
-                console.log(`Spawned indexing worker for chain: ${config.blockchainId}, PID: ${worker.process.pid}`);
+                if (!indexerStarted) {
+                    const worker = cluster.fork({
+                        ROLE: 'indexer',
+                    });
+                    console.log(`Spawned indexing worker for all chains, PID: ${worker.process.pid}`);
+                    indexerStarted = true;
+                }
             } else if (role === 'fetcher') {
                 // Spawn single worker for other roles
                 const worker = cluster.fork({ ROLE: role, CHAIN_ID: config.blockchainId });
@@ -103,7 +106,7 @@ if (cluster.isPrimary) {
         const port = parseInt(process.env['PORT'] || '3080', 10);
         await apiServer.start(port);
     } else if (process.env['ROLE'] === 'indexer') {
-        await startIndexingLoop(getCurrentChainConfig());
+        await startIndexingLoopAllChains(CHAIN_CONFIGS);
     } else {
         throw new Error('unknown role');
     }

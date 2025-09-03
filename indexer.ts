@@ -22,6 +22,10 @@ const piscina = new Piscina({
 const TXS_PER_LOOP = 50000;
 const SLEEP_TIME = 3000;
 
+export async function startIndexingLoopAllChains(chainConfigs: ChainConfig[]) {
+    await Promise.all(chainConfigs.map(chainConfig => startIndexingLoop(chainConfig)));
+}
+
 export async function startIndexingLoop(chainConfig: ChainConfig) {
     const indexers = await loadIndexingPlugins(getPluginDirs());
 
@@ -61,15 +65,13 @@ export async function startIndexingLoop(chainConfig: ChainConfig) {
 
         initializeTransaction();
 
-        startPromises.push(startSingleIndexer(indexer, db, blocksDb));
+        startPromises.push(startSingleIndexer(chainConfig, indexer, db, blocksDb));
     }
 
     await Promise.all(startPromises);
 }
 const startTime = performance.now();
-async function startSingleIndexer(indexer: IndexingPlugin<any>, db: sqlite3.Database, blocksDb: BlocksDBHelper) {
-    const chainConfig = getCurrentChainConfig();
-
+async function startSingleIndexer(chainConfig: ChainConfig, indexer: IndexingPlugin<any>, db: sqlite3.Database, blocksDb: BlocksDBHelper) {
     const batchPromises = new Map<number, Promise<{ extractedData: any, indexedTxs: number }>>();
 
     // Main indexing loop

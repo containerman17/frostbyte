@@ -1,6 +1,6 @@
 import { currentLoad, mem } from "systeminformation";
 
-const LOOKAHEAD_DEBUG_LOGGING = false;
+const LOOKAHEAD_DEBUG_LOGGING = true;
 
 // Lookahead management class
 class LookaheadManager {
