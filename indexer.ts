@@ -5,7 +5,7 @@ import { IndexingPlugin } from './lib/types.js';
 import { getCurrentChainConfig, getSqliteDb, getPluginDirs, ChainConfig } from './config.js';
 import sqlite3 from 'better-sqlite3';
 import Piscina from 'piscina';
-import { lookaheadManager, type LookaheadManager } from './lib/lookaheadManager.js';
+import { lookaheadManager } from './lib/lookaheadManager.js';
 import os from 'node:os';
 import executeIndexingTask from './indexer_worker.js';
 

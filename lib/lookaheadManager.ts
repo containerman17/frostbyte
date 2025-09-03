@@ -2,6 +2,10 @@ import { currentLoad, mem } from "systeminformation";
 
 const LOOKAHEAD_DEBUG_LOGGING = true;
 
+export interface LookaheadManagerInterface {
+    getCurrentLookahead(): number;
+}
+
 // Lookahead management class
 class LookaheadManager {
     private currentLookahead = 0; // Start more aggressively
@@ -51,5 +55,16 @@ class LookaheadManager {
         return this.currentLookahead;
     }
 }
-export type { LookaheadManager };
-export const lookaheadManager = new LookaheadManager();
+
+class DummyLookaheadManager implements LookaheadManagerInterface {
+    constructor(private readonly lookahead: number) {
+        console.log('[LookaheadManager] DummyLookaheadManager initialized');
+    }
+
+    getCurrentLookahead(): number {
+        return this.lookahead;
+    }
+}
+
+// export const lookaheadManager: LookaheadManagerInterface = new LookaheadManager();
+export const lookaheadManager: LookaheadManagerInterface = new DummyLookaheadManager(10);
