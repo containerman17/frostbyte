@@ -15,7 +15,7 @@ function getPiscina(): Piscina {
     if (!piscina) {
         piscina = new Piscina({
             filename: new URL('./indexer_worker.ts', import.meta.url).toString(),
-            maxThreads: os.cpus().length,
+            maxThreads: os.cpus().length * 2,
             execArgv: process.execArgv,
             env: {
                 ...process.env,
