@@ -7,7 +7,7 @@ class LookaheadManager {
     private currentLookahead = 0; // Start more aggressively
     private readonly maxLookahead = 10;
     private readonly minLookahead = 0;
-    private readonly cpuThreshold = 0.9;
+    private readonly cpuThreshold = 99999999;//FIXME: change back to 0.9 when done testing
     private readonly memoryThreshold = 0.9;
     private lastLoggedLookahead = -1;
 
