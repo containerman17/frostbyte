@@ -3,6 +3,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { z } from 'zod';
 import Database from 'better-sqlite3';
+import { registerAllCustomFunctions } from './lib/db-functions.js';
 
 dotenv.config();
 
@@ -178,6 +179,9 @@ function createSqliteDb(config: CreateDbConfig & { chainId: string }): Database.
             }
         }, 1000);
     }
+
+    // Register all custom functions (uint256, etc.)
+    registerAllCustomFunctions(db);
 
     return db;
 }
