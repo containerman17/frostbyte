@@ -25,3 +25,5 @@ export { default as ChainsIndexerAPIPlugin } from './standardPlugins/chainsApi.t
 
 export * as viem from "viem";
 export { default as betterSqlite3 } from "better-sqlite3";
+
+export * as dbFunctions from "./lib/db-functions.ts";
