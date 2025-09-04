@@ -28,5 +28,3 @@ db structure
 require() statements.
 
 If importing sqlite3, use `import sqlite3 from 'better-sqlite3';`
-
-**Testing**: We are in 2025. Use Node.js built-in test runner (`node --test`) for testing. No need for external test runners.
