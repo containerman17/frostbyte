@@ -4,37 +4,63 @@ import { getIntValue, setIntValue } from './lib/dbHelper.js';
 import { IndexingPlugin } from './lib/types.js';
 import { getCurrentChainConfig, getSqliteDb, getPluginDirs, ChainConfig } from './config.js';
 import sqlite3 from 'better-sqlite3';
-import Piscina from 'piscina';
-import { lookaheadManager } from './lib/lookaheadManager.js';
-import os from 'node:os';
-import executeIndexingTask from './indexer_worker.js';
 
-let piscina: Piscina | null = null;
+const TXS_PER_LOOP = 10000;
+const SLEEP_TIME = 300;
 
-function getPiscina(): Piscina {
-    if (!piscina) {
-        piscina = new Piscina({
-            filename: new URL('./indexer_worker.ts', import.meta.url).toString(),
-            maxThreads: os.cpus().length,//use * 2 if fixed problems with memory
-            execArgv: process.execArgv,
-            env: {
-                ...process.env,
-                NODE_PATH: process.env['NODE_PATH']
-            }
-        });
+// Read-through FIFO cache for getTxBatch results with TTL
+class TxBatchCache {
+    private cache = new Map<string, { data: { txs: any[], traces: any[] | undefined }, timestamp: number }>();
+    private keys: string[] = [];
+    private maxSize = 10;
+    private ttlMs = 2000; // 2 second TTL
+
+    constructor(private blocksDb: BlocksDBHelper) { }
+
+    private makeKey(from: number, to: number, includeTraces: boolean, filterEvents?: string[]): string {
+        return `${from}-${to}-${includeTraces}-${filterEvents?.join(',') || ''}`;
     }
-    return piscina;
+
+    getTxBatch(from: number, to: number, includeTraces: boolean, filterEvents?: string[]): { txs: any[], traces: any[] | undefined } {
+        const key = this.makeKey(from, to, includeTraces, filterEvents);
+        const now = Date.now();
+
+        // Check cache
+        const cached = this.cache.get(key);
+        if (cached && (now - cached.timestamp) < this.ttlMs) {
+            console.log(`[Cache HIT] ${from}-${to} (${cached.data.txs.length} txs)`);
+            return cached.data;
+        }
+
+        // Cache miss or expired - fetch from DB
+        const data = this.blocksDb.getTxBatch(from, to, includeTraces, filterEvents);
+
+        // Remove expired entry if it exists
+        if (cached) {
+            const keyIndex = this.keys.indexOf(key);
+            if (keyIndex > -1) {
+                this.keys.splice(keyIndex, 1);
+            }
+            this.cache.delete(key);
+        }
+
+        // FIFO eviction if needed
+        if (this.keys.length >= this.maxSize) {
+            const oldestKey = this.keys.shift()!;
+            this.cache.delete(oldestKey);
+        }
+
+        // Store in cache with timestamp
+        this.cache.set(key, { data, timestamp: now });
+        this.keys.push(key);
+
+        return data;
+    }
 }
 
-const TXS_PER_LOOP = 50000;
-const INLINE_THRESHOLD = TXS_PER_LOOP / 10; // Process inline if less than 5000 txs
-const SLEEP_TIME = 3000;
-
-export async function startIndexingLoopAllChains(chainConfigs: ChainConfig[]) {
-    await Promise.all(chainConfigs.map(chainConfig => startIndexingLoop(chainConfig)));
-}
-
-export async function startIndexingLoop(chainConfig: ChainConfig) {
+// Single chain indexer - one process per chain
+export async function startIndexingLoop() {
+    const chainConfig = getCurrentChainConfig();
     const indexers = await loadIndexingPlugins(getPluginDirs());
 
     // Get the blocks database once for all indexers
@@ -49,9 +75,12 @@ export async function startIndexingLoop(chainConfig: ChainConfig) {
         chainConfig.rpcConfig.rpcSupportsDebug
     );
 
-    const startPromises = new Array<Promise<void>>();
+    // Initialize read-through cache wrapping the blocks DB
+    const txBatchCache = new TxBatchCache(blocksDb);
 
-    //Initialize indexers
+    // Initialize all indexers first
+    const indexerConfigs: Array<{ indexer: IndexingPlugin<any>, db: sqlite3.Database }> = [];
+
     for (const indexer of indexers) {
         console.log(`[${indexer.name} - ${chainConfig.chainName}] Starting indexer v${indexer.version}`);
         const db = getSqliteDb({
@@ -73,121 +102,64 @@ export async function startIndexingLoop(chainConfig: ChainConfig) {
 
         initializeTransaction();
 
-        startPromises.push(startSingleIndexer(chainConfig, indexer, db, blocksDb));
+        indexerConfigs.push({ indexer, db });
     }
 
-    await Promise.all(startPromises);
-}
-const startTime = performance.now();
-async function startSingleIndexer(chainConfig: ChainConfig, indexer: IndexingPlugin<any>, db: sqlite3.Database, blocksDb: BlocksDBHelper) {
-    const batchPromises = new Map<number, Promise<{ extractedData: any, indexedTxs: number }>>();
-
-    // Main indexing loop
+    // Main loop - process all indexers sequentially
+    const startTime = performance.now();
     while (true) {
-        // Get last indexed transaction from db (outside of transaction)
-        const lastIndexedTx = getIntValue(db, `lastIndexedTx_${indexer.name}`, -1);
-        const totalTxCount = blocksDb.getTxCount();
+        let didWork = false;
 
-        if (lastIndexedTx >= totalTxCount) {
-            await new Promise(resolve => setTimeout(resolve, SLEEP_TIME));
-            continue;
-        }
+        for (const { indexer, db } of indexerConfigs) {
+            // Get last indexed transaction from db
+            const lastIndexedTx = getIntValue(db, `lastIndexedTx_${indexer.name}`, -1);
+            const totalTxCount = blocksDb.getTxCount();
 
-        const getStart = performance.now();
-
-        // Only lookahead for WHOLE batches
-        for (let i = 0; i < lookaheadManager.getCurrentLookahead(); i++) {
-            const fromTx = lastIndexedTx + i * TXS_PER_LOOP;
-            const toTx = lastIndexedTx + (i + 1) * TXS_PER_LOOP;
-
-            // Skip if this would be a partial batch
-            if (toTx > totalTxCount) {
-                break;
+            if (lastIndexedTx >= totalTxCount) {
+                continue; // Nothing to do for this indexer
             }
 
-            if (batchPromises.has(fromTx)) {
-                continue;
-            }
+            didWork = true;
+            const getStart = performance.now();
 
-            // Full batches always use workers (they're always TXS_PER_LOOP = 50k)
-            batchPromises.set(fromTx, getPiscina().run({
-                chainConfig,
-                pluginName: indexer.name,
-                pluginVersion: indexer.version,
-                fromTx,
-                toTx
-            }));
-        }
-
-        // Check if we have a pre-fetched batch or need to process final partial batch
-        let batch: Awaited<ReturnType<typeof executeIndexingTask>>;
-        let processedToTx: number;
-
-        if (batchPromises.has(lastIndexedTx)) {
-            // Use pre-fetched whole batch
-            batch = await batchPromises.get(lastIndexedTx)!;
-            batchPromises.delete(lastIndexedTx);
-            processedToTx = lastIndexedTx + TXS_PER_LOOP;
-        } else if (lastIndexedTx < totalTxCount) {
-            // Process final partial batch (not pre-fetched)
+            // Process next batch
             const toTx = Math.min(totalTxCount, lastIndexedTx + TXS_PER_LOOP);
-            const batchSize = toTx - lastIndexedTx;
 
-            if (batchSize < INLINE_THRESHOLD) {
-                // Process small batches inline to avoid worker overhead
-                // Wrap sync call in Promise.resolve for type consistency
-                batch = await Promise.resolve(executeIndexingTask({
-                    chainConfig,
-                    pluginName: indexer.name,
-                    pluginVersion: indexer.version,
-                    fromTx: lastIndexedTx,
-                    toTx
-                }));
-            } else {
-                // Use worker threads for larger batches
-                batch = await getPiscina().run({
-                    chainConfig,
-                    pluginName: indexer.name,
-                    pluginVersion: indexer.version,
-                    fromTx: lastIndexedTx,
-                    toTx
-                });
+            // Get transactions (cache handles everything)
+            const transactions = txBatchCache.getTxBatch(lastIndexedTx, toTx, indexer.usesTraces, indexer.filterEvents);
+
+            // Extract data inline
+            const extractedData = indexer.extractData(transactions);
+
+            const indexingStart = performance.now();
+
+            // Save extracted data in SQLite transaction
+            const saveDataTransaction = db.transaction(() => {
+                indexer.saveExtractedData(db, blocksDb, extractedData);
+                setIntValue(db, `lastIndexedTx_${indexer.name}`, toTx);
+            });
+
+            saveDataTransaction();
+
+            const indexingFinish = performance.now();
+
+            // Get progress information
+            const lastStoredBlock = blocksDb.getLastStoredBlockNumber();
+            const indexingPercentage = ((lastIndexedTx / totalTxCount) * 100).toFixed(2);
+
+            if (transactions.txs.length > 0) {
+                console.log(
+                    `[${indexer.name} - ${chainConfig.chainName}] Retrieved ${transactions.txs.length} txs in ${Math.round(indexingStart - getStart)}ms`,
+                    `Indexed ${transactions.txs.length} txs in ${Math.round(indexingFinish - indexingStart)}ms`,
+                    `(${indexingPercentage}% - tx ${lastIndexedTx}/${totalTxCount})`,
+                    `Total time: ${Math.round((performance.now() - startTime) / 1000)}s`
+                );
             }
-            processedToTx = toTx;
-        } else {
-            // No work to do
-            await new Promise(resolve => setTimeout(resolve, SLEEP_TIME));
-            continue;
         }
 
-        const indexingStart = performance.now();
-
-        // Save extracted data in SQLite transaction
-        const saveDataTransaction = db.transaction(() => {
-            indexer.saveExtractedData(db, blocksDb, batch.extractedData);
-            setIntValue(db, `lastIndexedTx_${indexer.name}`, processedToTx);
-        });
-
-        saveDataTransaction();
-
-        const indexingFinish = performance.now();
-
-        // Get progress information
-        const lastStoredBlock = blocksDb.getLastStoredBlockNumber();
-        const indexingPercentage = ((lastIndexedTx / lastStoredBlock) * 100).toFixed(2);
-
-        if (batch.indexedTxs > 0) {
-            const processingMode = batch.indexedTxs < INLINE_THRESHOLD ? 'inline' : 'worker';
-            console.log(
-                `[${indexer.name} - ${chainConfig.chainName}] Retrieved ${batch.indexedTxs} txs in ${Math.round(indexingStart - getStart)}ms (${processingMode})`,
-                `Indexed ${batch.indexedTxs} txs in ${Math.round(indexingFinish - indexingStart)}ms`,
-                `(${indexingPercentage}% - tx ${lastIndexedTx}/${totalTxCount}, queue: ${batchPromises.size}, lookahead: ${lookaheadManager.getCurrentLookahead()})`,
-                `Total time: ${Math.round((performance.now() - startTime) / 1000)}s`
-            );
-        } else {
-            // Debug when no work is being processed
-            console.log(`[${indexer.name}] DEBUG: No work processed. Queue: ${batchPromises.size}, Lookahead: ${lookaheadManager.getCurrentLookahead()}, LastTx: ${lastIndexedTx}/${totalTxCount}`);
+        // If no indexer had work, sleep
+        if (!didWork) {
+            await new Promise(resolve => setTimeout(resolve, SLEEP_TIME));
         }
     }
 }
-

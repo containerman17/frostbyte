@@ -5,8 +5,8 @@ import { startFetchingLoop } from './blockFetcher/startFetchingLoop.js';
 import { BatchRpc } from './blockFetcher/BatchRpc.js';
 import { CHAIN_CONFIGS, getCurrentChainConfig, getSqliteDb, RATE_LIMITS } from './config.js';
 import { createApiServer } from './api.js';
-import { startRateLimitServer } from './lib/ipcQueue.js';
-
+import { startRateLimitServer } from './lib/ipcQueue.ts';
+import { startIndexingLoop } from './indexer.ts';
 // Log any uncaught exceptions or promise rejections to aid debugging of worker crashes
 process.on('unhandledRejection', reason => {
     console.error('Unhandled promise rejection:', reason);
@@ -18,7 +18,6 @@ process.on('uncaughtException', error => {
 if (cluster.isPrimary) {
     const roles = process.env['ROLES']?.split(',') || ['api', 'indexer', 'fetcher'];
     let apiStarted = false;
-    let indexerStarted = false;
 
     // Calculate number of API workers (CPU cores / 2, minimum 1)
     const numCpus = os.cpus().length;
@@ -34,13 +33,12 @@ if (cluster.isPrimary) {
         // Spawn workers based on roles
         for (const role of roles) {
             if (role === 'indexer') {
-                if (!indexerStarted) {
-                    const worker = cluster.fork({
-                        ROLE: 'indexer',
-                    });
-                    console.log(`Spawned indexing worker for all chains, PID: ${worker.process.pid}`);
-                    indexerStarted = true;
-                }
+                // Spawn one indexer process per chain
+                const worker = cluster.fork({
+                    ROLE: 'indexer',
+                    CHAIN_ID: config.blockchainId
+                });
+                console.log(`Spawned indexer worker for chain ${config.chainName}, PID: ${worker.process.pid}`);
             } else if (role === 'fetcher') {
                 // Spawn single worker for other roles
                 const worker = cluster.fork({ ROLE: role, CHAIN_ID: config.blockchainId });
@@ -105,8 +103,7 @@ if (cluster.isPrimary) {
         const port = parseInt(process.env['PORT'] || '3080', 10);
         await apiServer.start(port);
     } else if (process.env['ROLE'] === 'indexer') {
-        const { startIndexingLoopAllChains } = await import('./indexer.js');
-        await startIndexingLoopAllChains(CHAIN_CONFIGS);
+        await startIndexingLoop();
     } else {
         throw new Error('unknown role');
     }
