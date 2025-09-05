@@ -129,19 +129,19 @@ export async function startIndexingLoop() {
             const transactions = txBatchCache.getTxBatch(lastIndexedTx, toTx, indexer.usesTraces, indexer.filterEvents);
 
             // Extract data inline
+            const extractStart = performance.now();
             const extractedData = indexer.extractData(transactions);
-
-            const indexingStart = performance.now();
+            const extractFinish = performance.now();
 
             // Save extracted data in SQLite transaction
+            const saveStart = performance.now();
             const saveDataTransaction = db.transaction(() => {
                 indexer.saveExtractedData(db, blocksDb, extractedData);
                 setIntValue(db, `lastIndexedTx_${indexer.name}`, toTx);
             });
 
             saveDataTransaction();
-
-            const indexingFinish = performance.now();
+            const saveFinish = performance.now();
 
             // Get progress information
             const lastStoredBlock = blocksDb.getLastStoredBlockNumber();
@@ -149,8 +149,9 @@ export async function startIndexingLoop() {
 
             if (transactions.txs.length > 0) {
                 console.log(
-                    `[${indexer.name} - ${chainConfig.chainName}] Retrieved ${transactions.txs.length} txs in ${Math.round(indexingStart - getStart)}ms`,
-                    `Indexed ${transactions.txs.length} txs in ${Math.round(indexingFinish - indexingStart)}ms`,
+                    `[${indexer.name} - ${chainConfig.chainName}] Retrieved ${transactions.txs.length} txs in ${Math.round(extractStart - getStart)}ms`,
+                    `Extracted in ${Math.round(extractFinish - extractStart)}ms`,
+                    `Saved in ${Math.round(saveFinish - saveStart)}ms`,
                     `(${indexingPercentage}% - tx ${lastIndexedTx}/${totalTxCount})`,
                     `Total time: ${Math.round((performance.now() - startTime) / 1000)}s`
                 );
