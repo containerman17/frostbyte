@@ -1,5 +1,6 @@
 import { BlocksDBHelper } from './blockFetcher/BlocksDBHelper';
 import Fastify, { FastifyInstance } from 'fastify';
+import cors from '@fastify/cors';
 import { loadApiPlugins, loadIndexingPlugins } from './lib/plugins.js';
 import { getSqliteDb, ChainConfig } from './config.js';
 import { getPluginDirs } from './config.js';
@@ -87,6 +88,11 @@ export async function createApiServer(chainConfigs: ChainConfig[]) {
                 }
             }
         }
+    });
+
+    // Register CORS plugin to allow all origins
+    await app.register(cors, {
+        origin: true
     });
 
     // Register swagger plugin
